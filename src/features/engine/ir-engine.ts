@@ -1,6 +1,6 @@
 import type { SystemSettingsType } from "@/types/system-settings";
 
-class IREngine {
+export class IREngine {
     documents: any;
     queries: any;
     qrels: any;
