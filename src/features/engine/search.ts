@@ -1,0 +1,1 @@
+export function searchDocuments(queryVector: any, documentVectors: any, topK: any) {}
