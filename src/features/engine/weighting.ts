@@ -1,13 +1,97 @@
-export function computeTermFrequency(tokens: any, method: any) {}
+import type { SystemSettingsType } from "@/types/system-settings";
+import type { SparseVectorType } from "@/types/document-vectors";
 
-export function computeIdf(df: any, totalDocuments: any) {}
+export function computeRawTermFrequency(tokens: string[]): Record<string, number> {
+    const termFrequency: Record<string, number> = {};
 
-export function buildTfIdfVector(tf: any, idf: any) {}
+    for (const token of tokens) {
+        termFrequency[token] = (termFrequency[token] ?? 0) + 1;
+    }
 
-export function normalizeVector(vector: any) {}
+    return termFrequency;
+}
 
-export function cosineSimilarity(a: any, b: any) {}
+export function computeTermFrequency(
+    tokens: string[],
+    settings: SystemSettingsType
+): Record<string, number> {
+    const rawTf = computeRawTermFrequency(tokens);
 
-export function dotProduct(a: any, b: any) {}
+    if (settings.documentTermFrequency === "raw") {
+        return rawTf;
+    }
 
-export function vectorNorm(vector: any) {}
+    if (settings.documentTermFrequency === "binary") {
+        return Object.fromEntries(
+            Object.keys(rawTf).map((term) => [term, 1])
+        );
+    }
+
+    if (settings.documentTermFrequency === "logarithmic") {
+        return Object.fromEntries(
+            Object.entries(rawTf).map(([term, tf]) => [
+            term,
+            1 + Math.log10(tf),
+            ])
+        );
+    }
+
+    if (settings.documentTermFrequency === "augmented") {
+        const maxTf = Math.max(...Object.values(rawTf));
+
+        return Object.fromEntries(
+            Object.entries(rawTf).map(([term, tf]) => [
+                term,
+                0.5 + 0.5 * (tf / maxTf),
+            ])
+        );
+    }
+
+    return rawTf;
+}
+
+export function cosineSimilarity(
+    vectorA: SparseVectorType,
+    vectorB: SparseVectorType
+): number {
+    let dotProduct = 0;
+
+    for (const [term, weightA] of Object.entries(vectorA)) {
+        const weightB = vectorB[term] ?? 0;
+        dotProduct += weightA * weightB;
+    }
+
+    const normA = vectorNorm(vectorA);
+    const normB = vectorNorm(vectorB);
+
+    if (normA === 0 || normB === 0) {
+        return 0;
+    }
+
+    return dotProduct / (normA * normB);
+}
+
+export function vectorNorm(vector: SparseVectorType): number {
+    return Math.sqrt(
+        Object.values(vector).reduce((sum, weight) => sum + weight ** 2, 0)
+    );
+}
+
+export function normalizeVector(vector: SparseVectorType): SparseVectorType {
+    const norm = Math.sqrt(
+        Object.values(vector).reduce((sum, weight) => {
+            return sum + weight ** 2;
+        }, 0)
+    );
+
+    if (norm === 0) {
+        return vector;
+    }
+
+    return Object.fromEntries(
+        Object.entries(vector).map(([term, weight]) => [
+            term,
+            weight / norm,
+        ])
+    );
+}

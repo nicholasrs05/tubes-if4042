@@ -11,7 +11,8 @@ const SystemSettingsSchema = z.object({
     documentNormalization: z.boolean(),
     relevanceFeedbackMethod: z.string(),
     rocchioBetaConstant: z.number(),
-    rocchioGammaConstant: z.number()
+    rocchioGammaConstant: z.number(),
+    topKRetrievedDocuments: z.number(),
 })
 
 export type SystemSettingsType = z.infer<typeof SystemSettingsSchema>
