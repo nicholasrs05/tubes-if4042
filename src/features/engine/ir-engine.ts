@@ -91,8 +91,8 @@ export class IREngine {
 
         const results = Object.entries(this.documentVectors!).map(
             ([documentId, documentVector]) => ({
-            documentId,
-            score: cosineSimilarity(queryVector, documentVector),
+                documentId,
+                score: cosineSimilarity(queryVector, documentVector),
             })
         );
 
