@@ -1,4 +1,6 @@
 import { parseCisiDocument } from "@/features/parser/cisi-parser";
+import { parseQrelsDocument } from "@/features/parser/qrels-parser";
+import { parseQueryDocuments } from "@/features/parser/query-parser";
 import { preprocessText } from "../preprocessor/preprocess";
 import { 
     computeRawTermFrequency, 
@@ -8,12 +10,30 @@ import {
 } from "./weighting";
 
 import type { SystemSettingsType } from "@/types/system-settings";
-import type { DocumentsCollectionType }from "@/types/document-collections";
-import type { QueriesCollectionType } from "@/types/queries";
+import type { DocumentType, DocumentsCollectionType }from "@/types/document-collections";
+import type { QueriesCollectionType, QueryType } from "@/types/queries";
 import type { QrelsCollectionType } from "@/types/qrels";
 import type { InvertedIndexType } from "@/types/inverted-index";
 import type { IDFType } from "@/types/idf";
 import type { DocumentVectorsType, SparseVectorType } from "@/types/document-vectors";
+
+export type SearchResultType = {
+    documentId: string;
+    score: number;
+};
+
+export type BatchQueryResultType = {
+    queryId: string;
+    queryText: string;
+    results: SearchResultType[];
+    averagePrecision: number | null;
+    relevantDocumentCount: number;
+};
+
+export type BatchSearchResultType = {
+    queryResults: BatchQueryResultType[];
+    meanAveragePrecision: number | null;
+};
 
 export class IREngine {
     systemSettings: SystemSettingsType | null = null;
@@ -57,7 +77,7 @@ export class IREngine {
 
         this.documentsCollection = await parseCisiDocument(documentCollection);
 
-        const preprocessedDocuments = this.documentsCollection.documents.map((doc) => ({
+        const preprocessedDocuments = this.documentsCollection.documents.map((doc: DocumentType) => ({
             docId: doc.id,
             tokens: preprocessText(doc.concatenatedContent, settings),
         }));
@@ -68,11 +88,69 @@ export class IREngine {
         this.documentVectors = this.computeDocumentVectors(preprocessedDocuments, this.idf, settings);
     }
 
-    search(query: string, topK: number = 10): { documentId: string; score: number }[] {
+    async processQueries(queryDocument: File) {
+        this.queries = await parseQueryDocuments(queryDocument);
+    }
+
+    async processQrels(qrelsDocument: File) {
+        this.qrels = await parseQrelsDocument(qrelsDocument);
+    }
+
+    search(query: string, topK: number = 10): SearchResultType[] {
+        const queryVector = this.buildQueryVector(query);
+
+        return this.rankDocuments(queryVector, topK);
+    }
+
+    async searchBatch(
+        queryDocument: File,
+        topK: number = 10,
+        qrelsDocument?: File
+    ): Promise<BatchSearchResultType> {
+        await this.processQueries(queryDocument);
+
+        if (qrelsDocument) {
+            await this.processQrels(qrelsDocument);
+        } else {
+            this.qrels = null;
+        }
+
+        const queryResults = this.queries!.queries.map((query: QueryType): BatchQueryResultType => {
+            const results = this.search(query.text, topK);
+            const relevantDocumentIds = this.qrels?.[query.id] ?? [];
+
+            return {
+                queryId: query.id,
+                queryText: query.text,
+                results,
+                averagePrecision: relevantDocumentIds.length > 0
+                    ? this.computeAveragePrecision(results, relevantDocumentIds)
+                    : null,
+                relevantDocumentCount: relevantDocumentIds.length,
+            };
+        });
+
+        const scoredQueries = queryResults.filter((result: BatchQueryResultType) => result.averagePrecision !== null);
+        const meanAveragePrecision = scoredQueries.length > 0
+            ? scoredQueries.reduce((sum: number, result: BatchQueryResultType) => sum + (result.averagePrecision ?? 0), 0) / scoredQueries.length
+            : null;
+
+        return {
+            queryResults,
+            meanAveragePrecision,
+        };
+    }
+
+    applyFeedback(query: string, relevantDocs: DocumentVectorsType, nonRelevantDocs: DocumentVectorsType) {}
+
+
+    // HELPER METHODS
+    private buildQueryVector(query: string): SparseVectorType {
         const queryTokens = preprocessText(query, this.systemSettings!);
         const queryTf = computeTermFrequency(
             queryTokens,
-            this.systemSettings!
+            this.systemSettings!,
+            "query"
         );
 
         let queryVector: SparseVectorType = {};
@@ -89,6 +167,10 @@ export class IREngine {
             queryVector = normalizeVector(queryVector);
         }
 
+        return queryVector;
+    }
+
+    private rankDocuments(queryVector: SparseVectorType, topK: number): SearchResultType[] {
         const results = Object.entries(this.documentVectors!).map(
             ([documentId, documentVector]) => ({
                 documentId,
@@ -99,13 +181,25 @@ export class IREngine {
         return results
             .sort((a, b) => b.score - a.score)
             .slice(0, topK);
+    }
+
+    private computeAveragePrecision(results: SearchResultType[], relevantDocumentIds: string[]): number {
+        const relevantDocumentsSet = new Set(relevantDocumentIds);
+        let relevantFound = 0;
+        let precisionSum = 0;
+
+        for (const [index, result] of results.entries()) {
+            if (!relevantDocumentsSet.has(result.documentId)) {
+                continue;
+            }
+
+            relevantFound += 1;
+            precisionSum += relevantFound / (index + 1);
         }
 
-        
-    applyFeedback(query: string, relevantDocs: DocumentVectorsType, nonRelevantDocs: DocumentVectorsType) {}
+        return relevantDocumentsSet.size === 0 ? 0 : precisionSum / relevantDocumentsSet.size;
+    }
 
-
-    // HELPER METHODS
     private buildInvertedIndex(
         preprocessedDocuments: { docId: string; tokens: string[] }[]
     ): InvertedIndexType {
@@ -135,7 +229,7 @@ export class IREngine {
     ): IDFType {
         const idf: IDFType = {};
 
-        for (const [term, postingList] of Object.entries(invertedIndex)) {
+        for (const [term, postingList] of Object.entries(invertedIndex) as [string, InvertedIndexType[string]][]) {
             const documentFrequency = postingList.length;
 
             idf[term] = Math.log10(totalDocuments / documentFrequency);

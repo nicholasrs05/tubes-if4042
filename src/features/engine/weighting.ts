@@ -1,6 +1,8 @@
 import type { SystemSettingsType } from "@/types/system-settings";
 import type { SparseVectorType } from "@/types/document-vectors";
 
+export type TermFrequencyVariant = "raw" | "binary" | "logarithmic" | "augmented";
+
 export function computeRawTermFrequency(tokens: string[]): Record<string, number> {
     const termFrequency: Record<string, number> = {};
 
@@ -13,21 +15,25 @@ export function computeRawTermFrequency(tokens: string[]): Record<string, number
 
 export function computeTermFrequency(
     tokens: string[],
-    settings: SystemSettingsType
+    settings: SystemSettingsType,
+    target: "query" | "document" = "document"
 ): Record<string, number> {
     const rawTf = computeRawTermFrequency(tokens);
+    const termFrequencyVariant = (target === "query"
+        ? settings.queryTermFrequency
+        : settings.documentTermFrequency) as TermFrequencyVariant;
 
-    if (settings.documentTermFrequency === "raw") {
+    if (termFrequencyVariant === "raw") {
         return rawTf;
     }
 
-    if (settings.documentTermFrequency === "binary") {
+    if (termFrequencyVariant === "binary") {
         return Object.fromEntries(
             Object.keys(rawTf).map((term) => [term, 1])
         );
     }
 
-    if (settings.documentTermFrequency === "logarithmic") {
+    if (termFrequencyVariant === "logarithmic") {
         return Object.fromEntries(
             Object.entries(rawTf).map(([term, tf]) => [
             term,
@@ -36,7 +42,7 @@ export function computeTermFrequency(
         );
     }
 
-    if (settings.documentTermFrequency === "augmented") {
+    if (termFrequencyVariant === "augmented") {
         const maxTf = Math.max(...Object.values(rawTf));
 
         return Object.fromEntries(
