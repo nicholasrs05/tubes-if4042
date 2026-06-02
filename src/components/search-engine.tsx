@@ -9,6 +9,7 @@ import { IREngine } from "@/features/engine/ir-engine"
 
 import type { DocumentType } from "@/types/document-collections"
 import type { SystemSettingsType } from "@/types/system-settings"
+import type { BatchSearchResultType, SearchResultType } from "@/features/engine/ir-engine"
 
 type SearchEngineProps = {
     irEngineRef: RefObject<IREngine>
@@ -23,15 +24,72 @@ type SearchResult = {
     document: DocumentType | null
 }
 
+type BatchQueryResult = {
+    queryId: string
+    queryText: string
+    results: SearchResult[]
+    averagePrecision: number | null
+    relevantDocumentCount: number
+}
+
+function mapSearchResultsWithDocuments(
+    results: SearchResultType[],
+    documentsById: Map<string, DocumentType>
+): SearchResult[] {
+    return results.map((result) => ({
+        ...result,
+        document: documentsById.get(result.documentId) ?? null,
+    }))
+}
+
+function formatMetric(value: number | null) {
+    return value === null ? "N/A" : value.toFixed(4)
+}
+
+function buildBatchResultsOutput(batchResult: BatchSearchResultType) {
+    const lines: string[] = []
+
+    lines.push("Batch Retrieval Results")
+    lines.push("=======================")
+    lines.push(`Jumlah query: ${batchResult.queryResults.length}`)
+    lines.push(`MAP keseluruhan: ${formatMetric(batchResult.meanAveragePrecision)}`)
+    lines.push("")
+
+    for (const queryResult of batchResult.queryResults) {
+        lines.push(`Query ${queryResult.queryId}`)
+        lines.push(`Teks: ${queryResult.queryText}`)
+        lines.push(`Average Precision: ${formatMetric(queryResult.averagePrecision)}`)
+        lines.push(`Jumlah dokumen relevan: ${queryResult.relevantDocumentCount}`)
+        lines.push("Ranking:")
+
+        if (queryResult.results.length === 0) {
+            lines.push("Tidak ada dokumen yang ditemukan.")
+        }
+
+        queryResult.results.forEach((result, index) => {
+            lines.push(`${index + 1}. ${result.documentId} | score=${result.score.toFixed(6)}`)
+        })
+
+        lines.push("")
+    }
+
+    return lines.join("\n")
+}
+
 export function SearchEngine({ irEngineRef, systemSettings, searchQuery, setSearchQuery }: SearchEngineProps) {
     const [uploadedDocumentCollectionFile, setUploadedDocumentCollectionFile] = useState<File | null>(null)
     const [uploadedBatchQueryFile, setUploadedBatchQueryFile] = useState<File | null>(null)
     const [uploadedBatchRelevanceFeedbackFile, setUploadedBatchRelevanceFeedbackFile] = useState<File | null>(null)
     const [searchMode, setSearchMode] = useState<"single" | "batch">("single")
     const [searchResults, setSearchResults] = useState<SearchResult[]>([])
+    const [batchSearchResults, setBatchSearchResults] = useState<BatchQueryResult[]>([])
+    const [batchOutputText, setBatchOutputText] = useState("")
+    const [batchMeanAveragePrecision, setBatchMeanAveragePrecision] = useState<number | null>(null)
     const [searchError, setSearchError] = useState<string | null>(null)
     const [isSearching, setIsSearching] = useState(false)
     const [selectedResultIndex, setSelectedResultIndex] = useState<number | null>(null)
+    const [selectedBatchQueryIndex, setSelectedBatchQueryIndex] = useState<number | null>(null)
+    const [selectedBatchResultIndex, setSelectedBatchResultIndex] = useState<number | null>(null)
     const [isProcessingDocumentCollection, setIsProcessingDocumentCollection] = useState(false)
     const [documentCollectionStatus, setDocumentCollectionStatus] = useState<"idle" | "processing" | "done" | "error">("idle")
     const [processedDocumentsCount, setProcessedDocumentsCount] = useState<number | null>(null)
@@ -79,7 +137,12 @@ export function SearchEngine({ irEngineRef, systemSettings, searchQuery, setSear
                 setSearchError(null);
                 setUploadedDocumentCollectionFile(file);
                 setSearchResults([])
+                setBatchSearchResults([])
+                setBatchOutputText("")
+                setBatchMeanAveragePrecision(null)
                 setSelectedResultIndex(null)
+                setSelectedBatchQueryIndex(null)
+                setSelectedBatchResultIndex(null)
                 setLastExecutedQuery("")
                 setProcessedDocumentsCount(null)
                 setDocumentCollectionStatus("processing")
@@ -107,9 +170,19 @@ export function SearchEngine({ irEngineRef, systemSettings, searchQuery, setSear
             }
             case "batchQuery":
                 setUploadedBatchQueryFile(file);
+                setBatchSearchResults([])
+                setBatchOutputText("")
+                setBatchMeanAveragePrecision(null)
+                setSelectedBatchQueryIndex(null)
+                setSelectedBatchResultIndex(null)
                 break;
             case "batchRelevanceFeedback":
                 setUploadedBatchRelevanceFeedbackFile(file);
+                setBatchSearchResults([])
+                setBatchOutputText("")
+                setBatchMeanAveragePrecision(null)
+                setSelectedBatchQueryIndex(null)
+                setSelectedBatchResultIndex(null)
                 break;
         }
     }
@@ -117,23 +190,16 @@ export function SearchEngine({ irEngineRef, systemSettings, searchQuery, setSear
     async function handleSearch() {
         setSearchError(null)
         setSearchResults([])
+        setBatchSearchResults([])
+        setBatchOutputText("")
+        setBatchMeanAveragePrecision(null)
         setSelectedResultIndex(null)
+        setSelectedBatchQueryIndex(null)
+        setSelectedBatchResultIndex(null)
         setLastExecutedQuery("")
-
-        if (searchMode !== "single") {
-            setSearchError("Mode batch belum diimplementasikan. Gunakan mode single untuk pencarian.")
-            return
-        }
 
         if (!uploadedDocumentCollectionFile) {
             setSearchError("Unggah koleksi dokumen terlebih dahulu.")
-            return
-        }
-
-        const normalizedQuery = searchQuery.trim()
-
-        if (!normalizedQuery) {
-            setSearchError("Masukkan query pencarian terlebih dahulu.")
             return
         }
 
@@ -151,20 +217,48 @@ export function SearchEngine({ irEngineRef, systemSettings, searchQuery, setSear
 
         try {
             const irEngine = irEngineRef.current
+            const documentsById = new Map(
+                irEngine.documentsCollection?.documents.map((document) => [document.id, document]) ?? []
+            )
+
+            if (searchMode === "batch") {
+                if (!uploadedBatchQueryFile) {
+                    setSearchError("Unggah file query batch terlebih dahulu.")
+                    return
+                }
+
+                const batchResult = await irEngine.searchBatch(
+                    uploadedBatchQueryFile,
+                    systemSettings.topKRetrievedDocuments,
+                    uploadedBatchRelevanceFeedbackFile ?? undefined
+                )
+
+                const mappedBatchResults: BatchQueryResult[] = batchResult.queryResults.map((queryResult) => ({
+                    ...queryResult,
+                    results: mapSearchResultsWithDocuments(queryResult.results, documentsById),
+                }))
+
+                setBatchSearchResults(mappedBatchResults)
+                setBatchMeanAveragePrecision(batchResult.meanAveragePrecision)
+                setBatchOutputText(buildBatchResultsOutput(batchResult))
+                setSelectedBatchQueryIndex(mappedBatchResults.length > 0 ? 0 : null)
+                setSelectedBatchResultIndex(mappedBatchResults[0]?.results.length ? 0 : null)
+                return
+            }
+
+            const normalizedQuery = searchQuery.trim()
+
+            if (!normalizedQuery) {
+                setSearchError("Masukkan query pencarian terlebih dahulu.")
+                return
+            }
 
             const results = irEngine.search(
                 normalizedQuery,
                 systemSettings.topKRetrievedDocuments
             )
 
-            const documentsById = new Map(
-                irEngine.documentsCollection?.documents.map((document) => [document.id, document]) ?? []
-            )
-
-            const mappedResults = results.map((result) => ({
-                ...result,
-                document: documentsById.get(result.documentId) ?? null,
-            }))
+            const mappedResults = mapSearchResultsWithDocuments(results, documentsById)
 
             setSearchResults(mappedResults)
             setSelectedResultIndex(mappedResults.length > 0 ? 0 : null)
@@ -178,6 +272,28 @@ export function SearchEngine({ irEngineRef, systemSettings, searchQuery, setSear
     }
     const selectedResult =
         selectedResultIndex !== null ? (searchResults[selectedResultIndex] ?? null) : null
+    const selectedBatchQuery =
+        selectedBatchQueryIndex !== null ? (batchSearchResults[selectedBatchQueryIndex] ?? null) : null
+    const selectedBatchResult =
+        selectedBatchQuery && selectedBatchResultIndex !== null
+            ? (selectedBatchQuery.results[selectedBatchResultIndex] ?? null)
+            : null
+
+    function handleBatchDownload() {
+        if (!batchOutputText) {
+            return
+        }
+
+        const outputBlob = new Blob([batchOutputText], { type: "text/plain;charset=utf-8" })
+        const downloadUrl = URL.createObjectURL(outputBlob)
+        const link = document.createElement("a")
+        const sourceName = uploadedBatchQueryFile?.name.replace(/\.[^.]+$/, "") || "batch-query"
+
+        link.href = downloadUrl
+        link.download = `${sourceName}-results.txt`
+        link.click()
+        URL.revokeObjectURL(downloadUrl)
+    }
 
     return (
         <div className="rounded-xl border-2 border-gray-300 p-6 md:p-8 space-y-8">
@@ -272,7 +388,7 @@ export function SearchEngine({ irEngineRef, systemSettings, searchQuery, setSear
                     </div>
 
                     <div className="flex flex-col space-y-2 w-full max-w-md">
-                        <h3 className="text-lg font-semibold tracking-tight">Unggah File Relevance Feedback Batch</h3>
+                        <h3 className="text-lg font-semibold tracking-tight">Unggah File Qrels Batch (Opsional untuk MAP)</h3>
                         <Input
                             type="file"
                             onChange={(e) => void handleFileChange(e, "batchRelevanceFeedback")}
@@ -392,6 +508,153 @@ export function SearchEngine({ irEngineRef, systemSettings, searchQuery, setSear
                             )}
                         </div>
                     </div>
+                </div>
+            )}
+
+            {batchSearchResults.length > 0 && (
+                <div className="space-y-6">
+                    <div className="flex flex-col gap-3 rounded-lg border border-gray-200 bg-gray-50 p-4 lg:flex-row lg:items-center lg:justify-between">
+                        <div className="space-y-1">
+                            <h3 className="text-lg font-semibold tracking-tight">Hasil Pencarian Batch</h3>
+                            <p className="text-sm text-gray-600">
+                                {batchSearchResults.length} query diproses. MAP keseluruhan: {formatMetric(batchMeanAveragePrecision)}.
+                            </p>
+                            {!uploadedBatchRelevanceFeedbackFile && (
+                                <p className="text-sm text-amber-700">
+                                    MAP memerlukan file qrels. Ranking tetap tersedia walaupun qrels belum diunggah.
+                                </p>
+                            )}
+                        </div>
+
+                        <Button type="button" className="px-6" onClick={handleBatchDownload}>
+                            Unduh Hasil Batch
+                        </Button>
+                    </div>
+
+                    <div className="space-y-3">
+                        <h4 className="text-base font-semibold tracking-tight">Daftar Query</h4>
+                        <div className="grid gap-3 lg:grid-cols-2">
+                            {batchSearchResults.map((queryResult, index) => {
+                                const isSelected = selectedBatchQueryIndex === index
+
+                                return (
+                                    <button
+                                        key={queryResult.queryId}
+                                        type="button"
+                                        onClick={() => {
+                                            setSelectedBatchQueryIndex(index)
+                                            setSelectedBatchResultIndex(queryResult.results.length > 0 ? 0 : null)
+                                        }}
+                                        className={`rounded-lg border p-4 text-left transition ${isSelected
+                                            ? "border-blue-400 bg-blue-50"
+                                            : "border-gray-200 bg-white hover:border-blue-300"
+                                            }`}
+                                    >
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <p className="text-sm font-semibold text-gray-500">Query {queryResult.queryId}</p>
+                                                <p className="mt-1 line-clamp-2 text-sm leading-6 text-gray-700">{queryResult.queryText}</p>
+                                            </div>
+
+                                            <div className="shrink-0 rounded-md bg-gray-100 px-3 py-1 text-sm font-semibold text-gray-700">
+                                                AP {formatMetric(queryResult.averagePrecision)}
+                                            </div>
+                                        </div>
+                                    </button>
+                                )
+                            })}
+                        </div>
+                    </div>
+
+                    {selectedBatchQuery && (
+                        <div className="space-y-4">
+                            <div>
+                                <h4 className="text-base font-semibold tracking-tight">Ranking Query {selectedBatchQuery.queryId}</h4>
+                                <p className="text-sm text-gray-600">
+                                    Average Precision: {formatMetric(selectedBatchQuery.averagePrecision)}. Dokumen relevan pada qrels: {selectedBatchQuery.relevantDocumentCount}.
+                                </p>
+                            </div>
+
+                            <div className="grid gap-4 lg:grid-cols-2">
+                                <div className="space-y-3">
+                                    {selectedBatchQuery.results.map((result, index) => {
+                                        const isSelected = selectedBatchResultIndex === index
+
+                                        return (
+                                            <button
+                                                key={`${selectedBatchQuery.queryId}-${result.documentId}-${index}`}
+                                                type="button"
+                                                onClick={() => setSelectedBatchResultIndex(index)}
+                                                className={`w-full rounded-lg border p-4 text-left transition ${isSelected
+                                                    ? "border-blue-400 bg-blue-50"
+                                                    : "border-gray-200 bg-white hover:border-blue-300"
+                                                    }`}
+                                            >
+                                                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                                    <div className="min-w-0">
+                                                        <p className="text-sm font-semibold text-gray-500">
+                                                            Rank {index + 1} - Dokumen {result.documentId}
+                                                        </p>
+                                                        <h4 className="text-base font-semibold">
+                                                            {result.document?.title || "Tanpa judul"}
+                                                        </h4>
+                                                    </div>
+
+                                                    <div className="shrink-0 rounded-md bg-gray-100 px-3 py-1 text-sm font-semibold text-gray-700">
+                                                        Skor {result.score.toFixed(4)}
+                                                    </div>
+                                                </div>
+                                            </button>
+                                        )
+                                    })}
+
+                                    {selectedBatchQuery.results.length === 0 && (
+                                        <p className="rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-600">
+                                            Query ini tidak menghasilkan dokumen pada koleksi yang diproses.
+                                        </p>
+                                    )}
+                                </div>
+
+                                <div className="flex min-h-[18rem] flex-col rounded-lg border border-gray-200 p-4">
+                                    {selectedBatchResult ? (
+                                        <div className="flex min-h-0 flex-1 flex-col gap-3">
+                                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                                <div className="min-w-0">
+                                                    <p className="text-sm font-semibold text-gray-500">
+                                                        Rank {(selectedBatchResultIndex ?? 0) + 1} - Dokumen {selectedBatchResult.documentId}
+                                                    </p>
+                                                    <h4 className="text-base font-semibold">
+                                                        {selectedBatchResult.document?.title || "Tanpa judul"}
+                                                    </h4>
+                                                </div>
+
+                                                <div className="shrink-0 rounded-md bg-gray-100 px-3 py-1 text-sm font-semibold text-gray-700">
+                                                    Skor {selectedBatchResult.score.toFixed(4)}
+                                                </div>
+                                            </div>
+
+                                            {selectedBatchResult.document?.author && (
+                                                <p className="text-sm text-gray-600">
+                                                    {selectedBatchResult.document.author}
+                                                </p>
+                                            )}
+
+                                            <div className="min-h-0 flex-1 overflow-y-auto rounded-md bg-gray-50 p-3">
+                                                <p className="whitespace-pre-wrap text-sm leading-6 text-gray-700">
+                                                    {selectedBatchResult.document?.content || "Konten dokumen tidak tersedia."}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <p className="text-sm text-gray-600">
+                                            Pilih dokumen hasil ranking untuk melihat konten lengkap.
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                 </div>
             )}
         </div>

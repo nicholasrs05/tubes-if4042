@@ -5,4 +5,5 @@ const QrelsCollectionSchema = z.record(
     z.array(z.string())
 )
 
+export { QrelsCollectionSchema }
 export type QrelsCollectionType = z.infer<typeof QrelsCollectionSchema>
