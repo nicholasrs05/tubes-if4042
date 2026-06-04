@@ -1,10 +1,6 @@
 import type { SystemSettingsType } from "@/types/system-settings";
 import type { SparseVectorType } from "@/types/document-vectors";
 
-function createEmptyVector(): SparseVectorType {
-    return {};
-}
-
 function getAllTerms(vectors: SparseVectorType[]): Set<string> {
     const terms = new Set<string>();
 
@@ -19,7 +15,7 @@ function getAllTerms(vectors: SparseVectorType[]): Set<string> {
 
 function sumVectors(vectors: SparseVectorType[]): SparseVectorType {
     if (vectors.length === 0) {
-        return createEmptyVector();
+        return {};
     }
 
     const summedVector: SparseVectorType = {};
@@ -33,7 +29,7 @@ function sumVectors(vectors: SparseVectorType[]): SparseVectorType {
 
 function averageVectors(vectors: SparseVectorType[]): SparseVectorType {
     if (vectors.length === 0) {
-        return createEmptyVector();
+        return {};
     }
 
     const summedVector = sumVectors(vectors);
