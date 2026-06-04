@@ -1,6 +1,8 @@
 import type { SystemSettingsType } from "@/types/system-settings";
 import type { SparseVectorType } from "@/types/document-vectors";
 import type { TermFrequencyVariant } from "@/types/weighting";
+import type { InvertedIndexType } from "@/types/inverted-index";
+import type { IDFType } from "@/types/idf";
 
 export function computeRawTermFrequency(tokens: string[]): Record<string, number> {
     const termFrequency: Record<string, number> = {};
@@ -54,6 +56,21 @@ export function computeTermFrequency(
 
     return rawTf;
 }
+
+export function computeIDF(
+        invertedIndex: InvertedIndexType,
+        totalDocuments: number
+    ): IDFType {
+        const idf: IDFType = {};
+
+        for (const [term, postingList] of Object.entries(invertedIndex) as [string, InvertedIndexType[string]][]) {
+            const documentFrequency = postingList.length;
+
+            idf[term] = Math.log10(totalDocuments / documentFrequency);
+        }
+
+        return idf;
+    }
 
 export function cosineSimilarity(
     vectorA: SparseVectorType,

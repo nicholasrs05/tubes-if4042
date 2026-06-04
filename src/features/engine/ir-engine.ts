@@ -5,6 +5,7 @@ import { preprocessText } from "../preprocessor/preprocess";
 import {
     computeRawTermFrequency,
     computeTermFrequency,
+    computeIDF,
     normalizeVector,
     cosineSimilarity,
 } from "./weighting";
@@ -76,7 +77,7 @@ export class IREngine {
         }));
         this.invertedIndex = this.buildInvertedIndex(preprocessedDocuments);
 
-        this.idf = this.computeIDF(this.invertedIndex, this.documentsCollection.documents.length);
+        this.idf = computeIDF(this.invertedIndex, this.documentsCollection.documents.length);
 
         this.documentVectors = this.computeDocumentVectors(preprocessedDocuments, this.idf, settings);
     }
@@ -393,21 +394,6 @@ export class IREngine {
         }
 
         return invertedIndex;
-    }
-
-    private computeIDF(
-        invertedIndex: InvertedIndexType,
-        totalDocuments: number
-    ): IDFType {
-        const idf: IDFType = {};
-
-        for (const [term, postingList] of Object.entries(invertedIndex) as [string, InvertedIndexType[string]][]) {
-            const documentFrequency = postingList.length;
-
-            idf[term] = Math.log10(totalDocuments / documentFrequency);
-        }
-
-        return idf;
     }
 
     private computeDocumentVectors(
