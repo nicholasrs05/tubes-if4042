@@ -3,6 +3,7 @@ import type { ChangeEvent } from "react";
 
 import { DocumentDetail } from "@/components/search-engine/document-detail";
 import { ExpansionTermSelector } from "@/components/search-engine/expansion-term-selector";
+import { InvertedIndexDialog } from "@/components/search-engine/inverted-index-dialog";
 import { ResultsColumn } from "@/components/search-engine/results-column";
 import { WeightTable } from "@/components/search-engine/weight-table";
 import {
@@ -20,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { DEFAULT_EXPANSION_TERMS_COUNT } from "@/features/engine/ir-engine";
 import type { SparseVectorType } from "@/types/document-vectors";
+import type { InvertedIndexSnapshot } from "@/types/inverted-index-inspector";
 import type {
     BatchQueryResult,
     DocumentCollectionStatus,
@@ -55,6 +57,7 @@ export function SearchEngine({ irEngineRef, systemSettings, searchQuery, setSear
     const [documentCollectionStatus, setDocumentCollectionStatus] = useState<DocumentCollectionStatus>("idle");
     const [processedDocumentsCount, setProcessedDocumentsCount] = useState<number | null>(null);
     const [processedDocumentSettingsSignature, setProcessedDocumentSettingsSignature] = useState<string | null>(null);
+    const [invertedIndexSnapshot, setInvertedIndexSnapshot] = useState<InvertedIndexSnapshot | null>(null);
     const processingRequestIdRef = useRef(0);
 
     function clearSearchOutputs() {
@@ -99,6 +102,7 @@ export function SearchEngine({ irEngineRef, systemSettings, searchQuery, setSear
         setSearchError(null);
         setDocumentCollectionStatus("processing");
         setIsProcessingDocumentCollection(true);
+        setInvertedIndexSnapshot(null);
 
         if (shouldClearOutputs) {
             clearSearchOutputs();
@@ -113,6 +117,11 @@ export function SearchEngine({ irEngineRef, systemSettings, searchQuery, setSear
             }
 
             setProcessedDocumentsCount(irEngine.documentsCollection?.documents.length ?? 0);
+            setInvertedIndexSnapshot({
+                documents: irEngine.documentsCollection?.documents ?? [],
+                invertedIndex: irEngine.invertedIndex ?? {},
+                documentVectors: irEngine.documentVectors ?? {},
+            });
             setProcessedDocumentSettingsSignature(settingsSignature);
             setDocumentCollectionStatus("done");
             return true;
@@ -122,6 +131,7 @@ export function SearchEngine({ irEngineRef, systemSettings, searchQuery, setSear
             }
 
             setProcessedDocumentSettingsSignature(null);
+            setInvertedIndexSnapshot(null);
             setDocumentCollectionStatus("error");
             setSearchError(error instanceof Error ? error.message : "Terjadi kesalahan saat memproses koleksi dokumen.");
             return false;
@@ -558,9 +568,18 @@ export function SearchEngine({ irEngineRef, systemSettings, searchQuery, setSear
                 </div>
 
                 {uploadedDocumentCollectionFile && (
-                    <p className="text-sm text-gray-600">
-                        File terpilih: {uploadedDocumentCollectionFile.name}
-                    </p>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                        <p className="text-sm text-gray-600">
+                            File terpilih: {uploadedDocumentCollectionFile.name}
+                        </p>
+
+                        {documentCollectionStatus === "done" && (
+                            <InvertedIndexDialog
+                                snapshot={invertedIndexSnapshot}
+                                isEnabled={Boolean(invertedIndexSnapshot)}
+                            />
+                        )}
+                    </div>
                 )}
             </div>
 
