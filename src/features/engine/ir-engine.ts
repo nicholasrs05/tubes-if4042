@@ -18,7 +18,7 @@ import type { IDFType } from "@/types/idf";
 import type { DocumentVectorsType, SparseVectorType } from "@/types/document-vectors";
 import { applyIdeDecHi, applyIdeRegular, applyRocchio } from "./relevance-feedback";
 
-const DEFAULT_EXPANSION_TERMS_COUNT = 5;
+export const DEFAULT_EXPANSION_TERMS_COUNT = 5;
 const DEFAULT_PSEUDO_RELEVANT_DOCUMENTS_COUNT = 5;
 
 export type SearchResultType = {
@@ -153,7 +153,8 @@ export class IREngine {
         pass1Results: SearchResultType[],
         topK: number,
         relevantDocumentIds: string[],
-        nonRelevantDocumentIds?: string[]
+        nonRelevantDocumentIds?: string[],
+        selectedExpansionTerms?: string[]
     ): SearchResultResponse {
         this.assertReady();
 
@@ -165,7 +166,8 @@ export class IREngine {
         const updatedQuery = this.applyFeedback(
             originalQuery,
             relevantDocumentIds,
-            resolvedNonRelevantDocumentIds
+            resolvedNonRelevantDocumentIds,
+            selectedExpansionTerms
         );
         const pass2Results = this.rankDocuments(updatedQuery, topK);
 
@@ -253,7 +255,28 @@ export class IREngine {
         return this.documentVectors?.[documentId] ?? {};
     }
 
-    private applyFeedback(
+    computeExpansionTermWeights(
+        queryVector: SparseVectorType,
+        relevantDocumentIds: string[],
+        nonRelevantDocumentIds: string[],
+    ): SparseVectorType {
+        this.assertReady();
+
+        const feedbackVector = this.computeFeedbackVector(
+            queryVector,
+            relevantDocumentIds,
+            nonRelevantDocumentIds
+        );
+        const originalTerms = new Set(Object.keys(queryVector));
+
+        return Object.fromEntries(
+            Object.entries(feedbackVector)
+                .filter(([term, weight]) => !originalTerms.has(term) && weight > 0)
+                .sort((a, b) => b[1] - a[1])
+        );
+    }
+
+    private computeFeedbackVector(
         queryVector: SparseVectorType,
         relevantDocumentIds: string[],
         nonRelevantDocumentIds: string[],
@@ -271,7 +294,24 @@ export class IREngine {
             feedbackVector = applyIdeDecHi(queryVector, relevantVectors, nonRelevantVectors);
         }
 
+        return feedbackVector;
+    }
+
+    private applyFeedback(
+        queryVector: SparseVectorType,
+        relevantDocumentIds: string[],
+        nonRelevantDocumentIds: string[],
+        selectedExpansionTerms?: string[],
+    ): SparseVectorType {
+        const feedbackVector = this.computeFeedbackVector(
+            queryVector,
+            relevantDocumentIds,
+            nonRelevantDocumentIds
+        );
         const originalTerms = new Set(Object.keys(queryVector));
+        const selectedExpansionTermsSet = selectedExpansionTerms
+            ? new Set(selectedExpansionTerms)
+            : null;
         const expandedQuery: SparseVectorType = {};
 
         for (const term of originalTerms) {
@@ -287,7 +327,8 @@ export class IREngine {
         const expansionTerms = Object.entries(feedbackVector)
             .filter(([term, weight]) => !originalTerms.has(term) && weight > 0)
             .sort((a, b) => b[1] - a[1])
-            .slice(0, DEFAULT_EXPANSION_TERMS_COUNT);
+            .filter(([term]) => selectedExpansionTermsSet === null || selectedExpansionTermsSet.has(term))
+            .slice(0, selectedExpansionTermsSet === null ? DEFAULT_EXPANSION_TERMS_COUNT : undefined);
 
         for (const [term, weight] of expansionTerms) {
             expandedQuery[term] = weight;
