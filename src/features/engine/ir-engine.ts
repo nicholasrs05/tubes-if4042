@@ -16,23 +16,37 @@ import type { QrelsCollectionType } from "@/types/qrels";
 import type { InvertedIndexType } from "@/types/inverted-index";
 import type { IDFType } from "@/types/idf";
 import type { DocumentVectorsType, SparseVectorType } from "@/types/document-vectors";
+import { applyIdeDecHi, applyIdeRegular, applyRocchio } from "./relevance-feedback";
 
 export type SearchResultType = {
     documentId: string;
     score: number;
 };
 
+export type SearchResultResponse = {
+    originalQuery: SparseVectorType;
+    updatedQuery: SparseVectorType;
+    pass1Results: SearchResultType[];
+    pass2Results: SearchResultType[];
+}
+
 export type BatchQueryResultType = {
     queryId: string;
     queryText: string;
-    results: SearchResultType[];
-    averagePrecision: number | null;
+    pass1Results: SearchResultType[];
+    pass2Results: SearchResultType[];
+    pass1AP: number | null;
+    pass2AP: number | null;
+    // results: SearchResultType[];
+    // averagePrecision: number | null;
     relevantDocumentCount: number;
 };
 
 export type BatchSearchResultType = {
     queryResults: BatchQueryResultType[];
-    meanAveragePrecision: number | null;
+    pass1MAP: number | null;
+    pass2MAP: number | null;
+    // meanAveragePrecision: number | null;
 };
 
 export class IREngine {
@@ -96,10 +110,26 @@ export class IREngine {
         this.qrels = await parseQrelsDocument(qrelsDocument);
     }
 
-    search(query: string, topK: number = 10): SearchResultType[] {
-        const queryVector = this.buildQueryVector(query);
+    // search(query: string, topK: number = 10): SearchResultType[] {
+    //     const queryVector = this.buildQueryVector(query);
 
-        return this.rankDocuments(queryVector, topK);
+    //     return this.rankDocuments(queryVector, topK);
+    // }
+
+    // Search di update untuk akomodasi relevance feedback
+    search(query: string, topK: number = 10): SearchResultResponse {
+        const originalQuery = this.buildQueryVector(query);
+        const pass1Results = this.rankDocuments(originalQuery, topK);
+
+        const updatedQuery = this.applyFeedback(originalQuery, pass1Results);
+        const pass2Results = this.rankDocuments(updatedQuery, topK);
+
+        return {
+            originalQuery: originalQuery,
+            updatedQuery: updatedQuery,
+            pass1Results: pass1Results,
+            pass2Results: pass2Results,
+        };
     }
 
     async searchBatch(
@@ -116,32 +146,68 @@ export class IREngine {
         }
 
         const queryResults = this.queries!.queries.map((query: QueryType): BatchQueryResultType => {
-            const results = this.search(query.text, topK);
+            const { pass1Results, pass2Results } = this.search(query.text, topK);
             const relevantDocumentIds = this.qrels?.[query.id] ?? [];
 
             return {
                 queryId: query.id,
                 queryText: query.text,
-                results,
-                averagePrecision: relevantDocumentIds.length > 0
-                    ? this.computeAveragePrecision(results, relevantDocumentIds)
+                pass1Results,
+                pass2Results,
+                pass1AP: relevantDocumentIds.length > 0
+                    ? this.computeAveragePrecision(pass1Results, relevantDocumentIds)
+                    : null,
+                pass2AP: relevantDocumentIds.length > 0
+                    ? this.computeAveragePrecision(pass2Results, relevantDocumentIds)
                     : null,
                 relevantDocumentCount: relevantDocumentIds.length,
             };
         });
 
-        const scoredQueries = queryResults.filter((result: BatchQueryResultType) => result.averagePrecision !== null);
-        const meanAveragePrecision = scoredQueries.length > 0
-            ? scoredQueries.reduce((sum: number, result: BatchQueryResultType) => sum + (result.averagePrecision ?? 0), 0) / scoredQueries.length
+        const scoredQueries = queryResults.filter((result: BatchQueryResultType) => result.pass1AP !== null);
+        const pass1MAP = scoredQueries.length > 0
+            ? scoredQueries.reduce((sum: number, result: BatchQueryResultType) => sum + (result.pass1AP ?? 0), 0) / scoredQueries.length
+            : null;
+        const pass2MAP = scoredQueries.length > 0
+            ? scoredQueries.reduce((sum: number, result: BatchQueryResultType) => sum + (result.pass2AP ?? 0), 0) / scoredQueries.length
             : null;
 
         return {
             queryResults,
-            meanAveragePrecision,
+            pass1MAP,
+            pass2MAP, 
         };
     }
 
-    applyFeedback(query: string, relevantDocs: DocumentVectorsType, nonRelevantDocs: DocumentVectorsType) {}
+    applyFeedback(queryVector: SparseVectorType, initialResults: SearchResultType[]): SparseVectorType {
+        const prfDocs = initialResults.slice(0, 5).map(r => this.documentVectors![r.documentId]);
+        const nonRelevantDocs: SparseVectorType[] = []; 
+        
+        let feedbackVector: Record<string, number> = {};
+        const method = this.systemSettings!.relevanceFeedbackMethod;
+
+        if (method === "rocchio") {
+            feedbackVector = applyRocchio(queryVector, prfDocs, nonRelevantDocs, this.systemSettings!);
+        } else if (method === "ide") {
+            feedbackVector = applyIdeRegular(queryVector, prfDocs, nonRelevantDocs, this.systemSettings!);
+        } else if (method === "ide-dec-hi") {
+            feedbackVector = applyIdeDecHi(queryVector, prfDocs, nonRelevantDocs, this.systemSettings!);
+        }
+
+        const expanded = { ...queryVector };
+        const newTerms = Object.entries(feedbackVector)
+            .filter(([term, weight]) => !(term in queryVector) && weight > 0)
+            .sort((a, b) => b[1] - a[1]);
+
+        // @ts-ignore : Pastikan expandAllTerms dan expansionTermsCount terdefinisi di type systemSettings sebelumnya
+        const termsToAdd = this.systemSettings!.expandAllTerms 
+            ? newTerms 
+            : newTerms.slice(0, (this.systemSettings! as any).expansionTermsCount ?? 5);
+
+        for (const [term, weight] of termsToAdd) expanded[term] = weight;
+
+        return this.systemSettings!.queryNormalization ? normalizeVector(expanded) : expanded;
+    }
 
 
     // HELPER METHODS
