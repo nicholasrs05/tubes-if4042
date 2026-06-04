@@ -74,7 +74,9 @@ export function computeIDF(
 
 export function cosineSimilarity(
     vectorA: SparseVectorType,
-    vectorB: SparseVectorType
+    vectorB: SparseVectorType,
+    isANormalized: boolean = false,
+    isBNormalized: boolean = false
 ): number {
     let dotProduct = 0;
 
@@ -83,8 +85,12 @@ export function cosineSimilarity(
         dotProduct += weightA * weightB;
     }
 
-    const normA = vectorNorm(vectorA);
-    const normB = vectorNorm(vectorB);
+    if (isANormalized && isBNormalized) {
+        return dotProduct;
+    }
+
+    const normA = isANormalized ? 1 : vectorNorm(vectorA);
+    const normB = isBNormalized ? 1 : vectorNorm(vectorB);
 
     if (normA === 0 || normB === 0) {
         return 0;

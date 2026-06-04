@@ -344,10 +344,13 @@ export class IREngine {
     }
 
     private rankDocuments(queryVector: SparseVectorType, topK: number): SearchResultType[] {
+        const isQueryNorm = Boolean(this.systemSettings!.queryNormalization);
+        const isDocumentNorm = Boolean(this.systemSettings!.documentNormalization);
+
         const results = Object.entries(this.documentVectors!).map(
             ([documentId, documentVector]) => ({
                 documentId,
-                score: cosineSimilarity(queryVector, documentVector),
+                score: cosineSimilarity(queryVector, documentVector, isQueryNorm, isDocumentNorm),
             })
         );
 
