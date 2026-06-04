@@ -167,24 +167,23 @@ function buildBatchResultsOutput(batchResult: BatchSearchResultType) {
 function WeightTable({
     title,
     vector,
-    limit = 12,
+    className = "",
 }: {
     title: string;
     vector: SparseVectorType;
-    limit?: number;
+    className?: string;
 }) {
-    const { entries, total } = getVectorEntries(vector, limit);
-    const remainingCount = Math.max(total - entries.length, 0);
+    const { entries, total } = getVectorEntries(vector);
 
     return (
-        <div className="rounded-xl border border-gray-200 bg-white p-4">
-            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <div className={`flex h-full min-h-0 flex-col rounded-xl border border-gray-200 bg-white p-4 ${className}`}>
+            <div className="shrink-0 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                 <h4 className="text-sm font-semibold tracking-tight text-gray-900">{title}</h4>
                 <span className="text-xs font-medium text-gray-500">{total} term berbobot</span>
             </div>
 
             {entries.length > 0 ? (
-                <div className="mt-3 max-h-64 overflow-y-auto rounded-lg border border-gray-100">
+                <div className="mt-3 min-h-0 flex-1 overflow-y-auto rounded-lg border border-gray-100">
                     <table className="w-full text-sm">
                         <tbody>
                             {entries.map(([term, weight]) => (
@@ -201,14 +200,8 @@ function WeightTable({
                     </table>
                 </div>
             ) : (
-                <p className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600">
+                <p className="mt-3 shrink-0 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600">
                     Belum ada bobot term untuk ditampilkan.
-                </p>
-            )}
-
-            {remainingCount > 0 && (
-                <p className="mt-2 text-xs text-gray-500">
-                    {remainingCount} term lain disembunyikan agar panel tetap ringkas.
                 </p>
             )}
         </div>
@@ -495,7 +488,7 @@ function DocumentDetail({
     }
 
     return (
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
+        <div className="grid min-h-0 items-stretch gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
             <div className="flex min-h-[20rem] flex-col rounded-xl border border-gray-200 bg-white p-4">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
@@ -525,7 +518,7 @@ function DocumentDetail({
                 </div>
             </div>
 
-            <WeightTable title={`Bobot Dokumen ${result.documentId}`} vector={result.weights} />
+            <WeightTable title={`Bobot Dokumen ${result.documentId}`} vector={result.weights} className="max-h-160" />
         </div>
     );
 }
@@ -1176,10 +1169,15 @@ export function SearchEngine({ irEngineRef, systemSettings, searchQuery, setSear
                     </div>
 
                     <div className="grid gap-4 lg:grid-cols-2">
-                        <WeightTable title="Bobot Query Awal" vector={singleSearch.originalQuery} />
+                        <WeightTable
+                            title="Bobot Query Awal"
+                            vector={singleSearch.originalQuery}
+                            className="max-h-80"
+                        />
                         <WeightTable
                             title="Bobot Query Setelah Ekspansi"
                             vector={singleSearch.updatedQuery ?? {}}
+                            className="max-h-80"
                         />
                     </div>
 
@@ -1278,6 +1276,7 @@ export function SearchEngine({ irEngineRef, systemSettings, searchQuery, setSear
 
                     <div className="space-y-3">
                         <h4 className="text-base font-semibold tracking-tight">Daftar Query</h4>
+                        <div className="max-h-[28rem] overflow-y-auto pr-1">
                         <div className="grid gap-3 lg:grid-cols-2">
                             {batchSearchResults.map((queryResult, index) => {
                                 const isSelected = selectedBatchQueryIndex === index;
@@ -1312,6 +1311,7 @@ export function SearchEngine({ irEngineRef, systemSettings, searchQuery, setSear
                                 );
                             })}
                         </div>
+                        </div>
                     </div>
 
                     {selectedBatchQuery && (
@@ -1324,8 +1324,16 @@ export function SearchEngine({ irEngineRef, systemSettings, searchQuery, setSear
                             </div>
 
                             <div className="grid gap-4 lg:grid-cols-2">
-                                <WeightTable title="Bobot Query Awal" vector={selectedBatchQuery.originalQuery} />
-                                <WeightTable title="Bobot Query Setelah Ekspansi" vector={selectedBatchQuery.updatedQuery} />
+                                <WeightTable
+                                    title="Bobot Query Awal"
+                                    vector={selectedBatchQuery.originalQuery}
+                                    className="max-h-80"
+                                />
+                                <WeightTable
+                                    title="Bobot Query Setelah Ekspansi"
+                                    vector={selectedBatchQuery.updatedQuery}
+                                    className="max-h-80"
+                                />
                             </div>
 
                             <div className="grid gap-4 md:grid-cols-2">
