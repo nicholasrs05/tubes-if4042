@@ -230,7 +230,7 @@ export function SearchEngine({ irEngineRef, systemSettings, searchQuery, setSear
             if (!collectionReady) return;
 
             const irEngine = irEngineRef.current;
-            const documentsById = getDocumentsById(irEngine);
+            const documentsById = irEngine.documentsById;
 
             if (searchMode === "batch") {
                 if (!uploadedBatchQueryFile) {
@@ -414,7 +414,7 @@ export function SearchEngine({ irEngineRef, systemSettings, searchQuery, setSear
             if (!collectionReady) return;
 
             const irEngine = irEngineRef.current;
-            const documentsById = getDocumentsById(irEngine);
+            const documentsById = irEngine.documentsById;
             const { relevantDocumentIds, nonRelevantDocumentIds } = getSingleFeedbackDocumentIds(
                 singleSearch,
                 selectedRelevantDocumentIds

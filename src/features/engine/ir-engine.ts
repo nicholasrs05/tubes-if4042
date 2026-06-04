@@ -32,6 +32,7 @@ const DEFAULT_PSEUDO_RELEVANT_DOCUMENTS_COUNT = 5;
 export class IREngine {
     systemSettings: SystemSettingsType | null = null;
     documentsCollection: DocumentsCollectionType | null = null;
+    documentsById: Map<string, DocumentType> = new Map();
     queries: QueriesCollectionType | null = null;
     qrels: QrelsCollectionType | null = null;
     invertedIndex: InvertedIndexType | null = null;
@@ -70,6 +71,11 @@ export class IREngine {
         this.systemSettings = settings;
 
         this.documentsCollection = await parseCisiDocument(documentCollection);
+
+        this.documentsById.clear();
+        for (const doc of this.documentsCollection.documents) {
+            this.documentsById.set(doc.id, doc);
+        }
 
         const preprocessedDocuments = this.documentsCollection.documents.map((doc: DocumentType) => ({
             docId: doc.id,
