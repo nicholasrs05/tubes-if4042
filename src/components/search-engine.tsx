@@ -11,7 +11,6 @@ import {
     createDocumentProcessingSettingsSignature,
     formatDocumentIds,
     formatMetric,
-    getDocumentsById,
     getVectorEntries,
     mapSearchResultsWithDocuments,
 } from "@/components/search-engine/utils";

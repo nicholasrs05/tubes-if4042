@@ -27,12 +27,6 @@ export function mapSearchResultsWithDocuments(
     }));
 }
 
-export function getDocumentsById(irEngine: IREngine) {
-    return new Map(
-        irEngine.documentsCollection?.documents.map((document) => [document.id, document]) ?? []
-    );
-}
-
 export function formatMetric(value: number | null) {
     return value === null ? "N/A" : value.toFixed(4);
 }

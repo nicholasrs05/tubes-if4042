@@ -106,9 +106,12 @@ export function cosineSimilarity(
 }
 
 export function vectorNorm(vector: SparseVectorType): number {
-    return Math.sqrt(
-        Object.values(vector).reduce((sum, weight) => sum + weight ** 2, 0)
-    );
+    let sumOfSquares = 0;
+
+    for (const term in vector) {
+        sumOfSquares += vector[term] ** 2;
+    }
+    return Math.sqrt(sumOfSquares);
 }
 
 export function normalizeVector(vector: SparseVectorType): SparseVectorType {

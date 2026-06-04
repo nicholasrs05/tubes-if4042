@@ -353,12 +353,24 @@ export class IREngine {
         const isQueryNorm = Boolean(this.systemSettings!.queryNormalization);
         const isDocumentNorm = Boolean(this.systemSettings!.documentNormalization);
 
-        const results = Object.entries(this.documentVectors!).map(
-            ([documentId, documentVector]) => ({
-                documentId,
-                score: cosineSimilarity(queryVector, documentVector, isQueryNorm, isDocumentNorm),
-            })
-        );
+        const candidateDocumentIds = new Set<string>();
+
+        for (const term in queryVector) {
+            if (queryVector[term] > 0 && this.invertedIndex![term]) {
+                for (const posting of this.invertedIndex![term]) {
+                    candidateDocumentIds.add(posting.documentId);
+                }
+            }
+        }
+
+        const results: SearchResultType[] = [];
+
+        for (const documentId of candidateDocumentIds) {
+            const documentVector = this.documentVectors![documentId];
+            if (documentVector) {
+                results.push({ documentId, score: cosineSimilarity(queryVector, documentVector, isQueryNorm, isDocumentNorm) });
+            }
+        }
 
         return results
             .sort((a, b) => b.score - a.score)
