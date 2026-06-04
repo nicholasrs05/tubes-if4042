@@ -38,19 +38,23 @@ function averageVectors(vectors: SparseVectorType[]): SparseVectorType {
 
     const summedVector = sumVectors(vectors);
 
-    return Object.fromEntries(
-        Object.entries(summedVector).map(([term, weight]) => [
-            term,
-            weight / vectors.length,
-        ])
-    );
+    const averageVector: SparseVectorType = {};
+
+    for (const term in summedVector) {
+        averageVector[term] = summedVector[term] / vectors.length;
+    }
+
+    return averageVector;
 }
 
 function clampPositiveVector(vector: SparseVectorType): SparseVectorType {
-    return Object.fromEntries(
-        Object.entries(vector)
-            .map(([term, weight]) => [term, Math.max(0, weight)] as const)
-    );
+    const clampedVector: SparseVectorType = {};
+
+    for (const term in vector) {
+        clampedVector[term] = Math.max(0, vector[term]);
+    }
+
+    return clampedVector;
 }
 
 export function applyRocchio(

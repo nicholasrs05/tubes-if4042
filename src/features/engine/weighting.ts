@@ -29,29 +29,35 @@ export function computeTermFrequency(
     }
 
     if (termFrequencyVariant === "binary") {
-        return Object.fromEntries(
-            Object.keys(rawTf).map((term) => [term, 1])
-        );
+        const binaryTf: Record<string, number> = {};
+        for (const term in rawTf) {
+            binaryTf[term] = 1;
+        }
+        return binaryTf;
     }
 
     if (termFrequencyVariant === "logarithmic") {
-        return Object.fromEntries(
-            Object.entries(rawTf).map(([term, tf]) => [
-            term,
-            1 + Math.log10(tf),
-            ])
-        );
+        const logTf: Record<string, number> = {};
+        for (const term in rawTf) {
+            logTf[term] = 1 + Math.log10(rawTf[term]);
+        }
+        return logTf;
     }
 
     if (termFrequencyVariant === "augmented") {
-        const maxTf = Math.max(...Object.values(rawTf));
+        let maxTf = 0;
+        for (const term in rawTf) {
+            if (rawTf[term] > maxTf) {
+                maxTf = rawTf[term];
+            }
+        }
 
-        return Object.fromEntries(
-            Object.entries(rawTf).map(([term, tf]) => [
-                term,
-                0.5 + 0.5 * (tf / maxTf),
-            ])
-        );
+        const augmentedTf: Record<string, number> = {};
+        for (const term in rawTf) {
+            augmentedTf[term] = 0.5 + 0.5 * (rawTf[term] / maxTf);
+        }
+
+        return augmentedTf;
     }
 
     return rawTf;
@@ -106,20 +112,23 @@ export function vectorNorm(vector: SparseVectorType): number {
 }
 
 export function normalizeVector(vector: SparseVectorType): SparseVectorType {
-    const norm = Math.sqrt(
-        Object.values(vector).reduce((sum, weight) => {
-            return sum + weight ** 2;
-        }, 0)
-    );
+    let sumOfSquares = 0;
+
+    for (const term in vector) {
+        sumOfSquares += vector[term] ** 2;
+    }
+
+    const norm = Math.sqrt(sumOfSquares);
 
     if (norm === 0) {
         return vector;
     }
 
-    return Object.fromEntries(
-        Object.entries(vector).map(([term, weight]) => [
-            term,
-            weight / norm,
-        ])
-    );
+    const normalizedVector: SparseVectorType = {};
+
+    for (const term in vector) {
+        normalizedVector[term] = vector[term] / norm;
+    }
+
+    return normalizedVector;
 }
