@@ -1,127 +1,136 @@
 import type { SystemSettingsType } from "@/types/system-settings";
+import type { SparseVectorType } from "@/types/document-vectors";
 
-export function applyRocchio(queryVector: any, relevantVectors: any, nonRelevantVectors: any, settings: SystemSettingsType) {
-
-    const c = 1; // Original query weight
-    const beta = settings.rocchioBetaConstant; // Relevant documents weight
-    const gamma = settings.rocchioGammaConstant; // Non-relevant documents weight
-
-    const n1 = relevantVectors.length;
-    const n2 = nonRelevantVectors.length;
-
-    const relevantCentroid = n1 > 0
-        ? Object.fromEntries(
-            Object.keys(relevantVectors[0]).map((term) => [
-                term, 
-                relevantVectors.reduce((sum: any, vec: { [x: string]: any; }) => sum + (vec[term] ?? 0), 0) / n1,
-            ])
-        )
-        : {};
-
-    const nonRelevantCentroid = n2 > 0
-        ? Object.fromEntries(
-            Object.keys(nonRelevantVectors[0]).map((term) => [
-                term, 
-                nonRelevantVectors.reduce((sum: any, vec: { [x: string]: any; }) => sum + (vec[term] ?? 0), 0) / n2,
-            ])
-        )
-        : {};
-    
-    const updatedQueryVector: Record<string, number> = {};
-
-    const allTerms = new Set([
-        ...Object.keys(queryVector),
-        ...Object.keys(relevantCentroid),
-        ...Object.keys(nonRelevantCentroid),
-    ]);
-    for (const term of allTerms) {
-        const qWeight = queryVector[term] ?? 0;
-        const rWeight = relevantCentroid[term] ?? 0;
-        const nrWeight = nonRelevantCentroid[term] ?? 0;
-        updatedQueryVector[term] = c * qWeight + beta * rWeight - gamma * nrWeight;
-    }
-
-    return updatedQueryVector;
-
+function createEmptyVector(): SparseVectorType {
+    return {};
 }
 
-export function applyIdeRegular(queryVector: any, relevantVectors: any, nonRelevantVectors: any, settings: SystemSettingsType) {
+function getAllTerms(vectors: SparseVectorType[]): Set<string> {
+    const terms = new Set<string>();
 
-    const c = 1; // Original query weight
-
-    const n1 = relevantVectors.length;
-    const n2 = nonRelevantVectors.length;
-
-    const relevantSum = n1 > 0
-        ? Object.fromEntries(
-            Object.keys(relevantVectors[0]).map((term) => [
-                term, 
-                relevantVectors.reduce((sum: any, vec: { [x: string]: any; }) => sum + (vec[term] ?? 0), 0),
-            ])
-        )
-        : {};
-
-    const nonRelevantSum = n2 > 0
-        ? Object.fromEntries(
-            Object.keys(nonRelevantVectors[0]).map((term) => [
-                term, 
-                nonRelevantVectors.reduce((sum: any, vec: { [x: string]: any; }) => sum + (vec[term] ?? 0), 0),
-            ])
-        )
-        : {};
-    
-    const updatedQueryVector: Record<string, number> = {};
-
-    const allTerms = new Set([
-        ...Object.keys(queryVector),
-        ...Object.keys(relevantSum),
-        ...Object.keys(nonRelevantSum),
-    ]);
-    for (const term of allTerms) {
-        const qWeight = queryVector[term] ?? 0;
-        const rWeight = relevantSum[term] ?? 0;
-        const nrWeight = nonRelevantSum[term] ?? 0;
-        updatedQueryVector[term] = c * qWeight + rWeight - nrWeight;
+    for (const vector of vectors) {
+        for (const term of Object.keys(vector)) {
+            terms.add(term);
+        }
     }
 
-    return updatedQueryVector;
-
+    return terms;
 }
 
-export function applyIdeDecHi(queryVector: any, relevantVectors: any, nonRelevantVectors: any, settings: SystemSettingsType) {
-
-    const c = 1; // Original query weight
-
-    const n1 = relevantVectors.length;
-    const n2 = nonRelevantVectors.length;
-
-    const relevantSum = n1 > 0
-        ? Object.fromEntries(
-            Object.keys(relevantVectors[0]).map((term) => [
-                term, 
-                relevantVectors.reduce((sum: any, vec: { [x: string]: any; }) => sum + (vec[term] ?? 0), 0),
-            ])
-        )
-        : {};
-
-    const topNonRelevantSum = n2 > 0
-        ? nonRelevantVectors[0] // Assuming nonRelevantVectors are sorted by rank
-        : {};
-    
-    const updatedQueryVector: Record<string, number> = {};
-
-    const allTerms = new Set([
-        ...Object.keys(queryVector),
-        ...Object.keys(relevantSum),
-        ...Object.keys(topNonRelevantSum),
-    ]);
-    for (const term of allTerms) {
-        const qWeight = queryVector[term] ?? 0;
-        const rWeight = relevantSum[term] ?? 0;
-        const nrWeight = topNonRelevantSum [term] ?? 0;
-        updatedQueryVector[term] = c * qWeight + rWeight - nrWeight;
+function sumVectors(vectors: SparseVectorType[]): SparseVectorType {
+    if (vectors.length === 0) {
+        return createEmptyVector();
     }
 
-    return updatedQueryVector;
+    const summedVector: SparseVectorType = {};
 
+    for (const term of getAllTerms(vectors)) {
+        summedVector[term] = vectors.reduce((sum, vector) => sum + (vector[term] ?? 0), 0);
+    }
+
+    return summedVector;
+}
+
+function averageVectors(vectors: SparseVectorType[]): SparseVectorType {
+    if (vectors.length === 0) {
+        return createEmptyVector();
+    }
+
+    const summedVector = sumVectors(vectors);
+
+    return Object.fromEntries(
+        Object.entries(summedVector).map(([term, weight]) => [
+            term,
+            weight / vectors.length,
+        ])
+    );
+}
+
+function clampPositiveVector(vector: SparseVectorType): SparseVectorType {
+    return Object.fromEntries(
+        Object.entries(vector)
+            .map(([term, weight]) => [term, Math.max(0, weight)] as const)
+    );
+}
+
+export function applyRocchio(
+    queryVector: SparseVectorType,
+    relevantVectors: SparseVectorType[],
+    nonRelevantVectors: SparseVectorType[],
+    settings: SystemSettingsType
+): SparseVectorType {
+    const alpha = 1;
+    const beta = settings.rocchioBetaConstant;
+    const gamma = settings.rocchioGammaConstant;
+    const relevantCentroid = averageVectors(relevantVectors);
+    const nonRelevantCentroid = averageVectors(nonRelevantVectors);
+    const updatedQueryVector: SparseVectorType = {};
+
+    const allTerms = getAllTerms([
+        queryVector,
+        relevantCentroid,
+        nonRelevantCentroid,
+    ]);
+
+    for (const term of allTerms) {
+        const queryWeight = queryVector[term] ?? 0;
+        const relevantWeight = relevantCentroid[term] ?? 0;
+        const nonRelevantWeight = nonRelevantCentroid[term] ?? 0;
+
+        updatedQueryVector[term] = alpha * queryWeight + beta * relevantWeight - gamma * nonRelevantWeight;
+    }
+
+    return clampPositiveVector(updatedQueryVector);
+}
+
+export function applyIdeRegular(
+    queryVector: SparseVectorType,
+    relevantVectors: SparseVectorType[],
+    nonRelevantVectors: SparseVectorType[],
+): SparseVectorType {
+    const relevantSum = sumVectors(relevantVectors);
+    const nonRelevantSum = sumVectors(nonRelevantVectors);
+    const updatedQueryVector: SparseVectorType = {};
+
+    const allTerms = getAllTerms([
+        queryVector,
+        relevantSum,
+        nonRelevantSum,
+    ]);
+
+    for (const term of allTerms) {
+        const queryWeight = queryVector[term] ?? 0;
+        const relevantWeight = relevantSum[term] ?? 0;
+        const nonRelevantWeight = nonRelevantSum[term] ?? 0;
+
+        updatedQueryVector[term] = queryWeight + relevantWeight - nonRelevantWeight;
+    }
+
+    return clampPositiveVector(updatedQueryVector);
+}
+
+export function applyIdeDecHi(
+    queryVector: SparseVectorType,
+    relevantVectors: SparseVectorType[],
+    nonRelevantVectors: SparseVectorType[],
+): SparseVectorType {
+    const relevantSum = sumVectors(relevantVectors);
+    const highestRankedNonRelevantVector = nonRelevantVectors[0] ?? {};
+    const updatedQueryVector: SparseVectorType = {};
+
+    const allTerms = getAllTerms([
+        queryVector,
+        relevantSum,
+        highestRankedNonRelevantVector,
+    ]);
+
+    for (const term of allTerms) {
+        const queryWeight = queryVector[term] ?? 0;
+        const relevantWeight = relevantSum[term] ?? 0;
+        const nonRelevantWeight = highestRankedNonRelevantVector[term] ?? 0;
+
+        updatedQueryVector[term] = queryWeight + relevantWeight - nonRelevantWeight;
+    }
+
+    return clampPositiveVector(updatedQueryVector);
 }

@@ -7,7 +7,7 @@ const SparseVectorSchema = z.record(
 
 export type SparseVectorType = z.infer<typeof SparseVectorSchema>
 
-const DocumentVectorsSchema = z.record(
+export const DocumentVectorsSchema = z.record(
     z.string(), 
     SparseVectorSchema
 )

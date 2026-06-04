@@ -2,15 +2,15 @@ import { parseCisiDocument } from "@/features/parser/cisi-parser";
 import { parseQrelsDocument } from "@/features/parser/qrels-parser";
 import { parseQueryDocuments } from "@/features/parser/query-parser";
 import { preprocessText } from "../preprocessor/preprocess";
-import { 
-    computeRawTermFrequency, 
-    computeTermFrequency, 
+import {
+    computeRawTermFrequency,
+    computeTermFrequency,
     normalizeVector,
     cosineSimilarity,
 } from "./weighting";
 
 import type { SystemSettingsType } from "@/types/system-settings";
-import type { DocumentType, DocumentsCollectionType }from "@/types/document-collections";
+import type { DocumentType, DocumentsCollectionType } from "@/types/document-collections";
 import type { QueriesCollectionType, QueryType } from "@/types/queries";
 import type { QrelsCollectionType } from "@/types/qrels";
 import type { InvertedIndexType } from "@/types/inverted-index";
@@ -18,9 +18,17 @@ import type { IDFType } from "@/types/idf";
 import type { DocumentVectorsType, SparseVectorType } from "@/types/document-vectors";
 import { applyIdeDecHi, applyIdeRegular, applyRocchio } from "./relevance-feedback";
 
+const DEFAULT_EXPANSION_TERMS_COUNT = 5;
+const DEFAULT_PSEUDO_RELEVANT_DOCUMENTS_COUNT = 5;
+
 export type SearchResultType = {
     documentId: string;
     score: number;
+};
+
+export type InitialSearchResponse = {
+    originalQuery: SparseVectorType;
+    pass1Results: SearchResultType[];
 };
 
 export type SearchResultResponse = {
@@ -28,25 +36,28 @@ export type SearchResultResponse = {
     updatedQuery: SparseVectorType;
     pass1Results: SearchResultType[];
     pass2Results: SearchResultType[];
-}
+    relevantDocumentIds: string[];
+    nonRelevantDocumentIds: string[];
+};
 
 export type BatchQueryResultType = {
     queryId: string;
     queryText: string;
+    originalQuery: SparseVectorType;
+    updatedQuery: SparseVectorType;
     pass1Results: SearchResultType[];
     pass2Results: SearchResultType[];
     pass1AP: number | null;
     pass2AP: number | null;
-    // results: SearchResultType[];
-    // averagePrecision: number | null;
     relevantDocumentCount: number;
+    feedbackRelevantDocumentIds: string[];
+    feedbackNonRelevantDocumentIds: string[];
 };
 
 export type BatchSearchResultType = {
     queryResults: BatchQueryResultType[];
     pass1MAP: number | null;
     pass2MAP: number | null;
-    // meanAveragePrecision: number | null;
 };
 
 export class IREngine {
@@ -110,25 +121,61 @@ export class IREngine {
         this.qrels = await parseQrelsDocument(qrelsDocument);
     }
 
-    // search(query: string, topK: number = 10): SearchResultType[] {
-    //     const queryVector = this.buildQueryVector(query);
+    searchInitial(query: string, topK: number = 10): InitialSearchResponse {
+        this.assertReady();
 
-    //     return this.rankDocuments(queryVector, topK);
-    // }
-
-    // Search di update untuk akomodasi relevance feedback
-    search(query: string, topK: number = 10): SearchResultResponse {
         const originalQuery = this.buildQueryVector(query);
         const pass1Results = this.rankDocuments(originalQuery, topK);
 
-        const updatedQuery = this.applyFeedback(originalQuery, pass1Results);
+        return {
+            originalQuery,
+            pass1Results,
+        };
+    }
+
+    search(query: string, topK: number = 10): SearchResultResponse {
+        const initialSearch = this.searchInitial(query, topK);
+        const pseudoRelevantDocumentIds = initialSearch.pass1Results
+            .slice(0, Math.min(DEFAULT_PSEUDO_RELEVANT_DOCUMENTS_COUNT, initialSearch.pass1Results.length))
+            .map((result) => result.documentId);
+
+        return this.expandSearchWithFeedback(
+            initialSearch.originalQuery,
+            initialSearch.pass1Results,
+            topK,
+            pseudoRelevantDocumentIds,
+            []
+        );
+    }
+
+    expandSearchWithFeedback(
+        originalQuery: SparseVectorType,
+        pass1Results: SearchResultType[],
+        topK: number,
+        relevantDocumentIds: string[],
+        nonRelevantDocumentIds?: string[]
+    ): SearchResultResponse {
+        this.assertReady();
+
+        const relevantSet = new Set(relevantDocumentIds);
+        const resolvedNonRelevantDocumentIds = nonRelevantDocumentIds
+            ?? pass1Results
+                .map((result) => result.documentId)
+                .filter((documentId) => !relevantSet.has(documentId));
+        const updatedQuery = this.applyFeedback(
+            originalQuery,
+            relevantDocumentIds,
+            resolvedNonRelevantDocumentIds
+        );
         const pass2Results = this.rankDocuments(updatedQuery, topK);
 
         return {
-            originalQuery: originalQuery,
-            updatedQuery: updatedQuery,
-            pass1Results: pass1Results,
-            pass2Results: pass2Results,
+            originalQuery,
+            updatedQuery,
+            pass1Results,
+            pass2Results,
+            relevantDocumentIds,
+            nonRelevantDocumentIds: resolvedNonRelevantDocumentIds,
         };
     }
 
@@ -137,6 +184,7 @@ export class IREngine {
         topK: number = 10,
         qrelsDocument?: File
     ): Promise<BatchSearchResultType> {
+        this.assertReady();
         await this.processQueries(queryDocument);
 
         if (qrelsDocument) {
@@ -146,21 +194,43 @@ export class IREngine {
         }
 
         const queryResults = this.queries!.queries.map((query: QueryType): BatchQueryResultType => {
-            const { pass1Results, pass2Results } = this.search(query.text, topK);
-            const relevantDocumentIds = this.qrels?.[query.id] ?? [];
+            const { originalQuery, pass1Results } = this.searchInitial(query.text, topK);
+            const qrelsRelevantDocumentIds = this.qrels?.[query.id] ?? [];
+            const qrelsRelevantDocumentSet = new Set(qrelsRelevantDocumentIds);
+            const feedbackRelevantDocumentIds = qrelsRelevantDocumentIds.length > 0
+                ? qrelsRelevantDocumentIds.filter((documentId) => Boolean(this.documentVectors?.[documentId]))
+                : pass1Results
+                    .slice(0, Math.min(DEFAULT_PSEUDO_RELEVANT_DOCUMENTS_COUNT, pass1Results.length))
+                    .map((result) => result.documentId);
+            const feedbackNonRelevantDocumentIds = qrelsRelevantDocumentIds.length > 0
+                ? pass1Results
+                    .map((result) => result.documentId)
+                    .filter((documentId) => !qrelsRelevantDocumentSet.has(documentId))
+                : [];
+            const { updatedQuery, pass2Results } = this.expandSearchWithFeedback(
+                originalQuery,
+                pass1Results,
+                topK,
+                feedbackRelevantDocumentIds,
+                feedbackNonRelevantDocumentIds
+            );
 
             return {
                 queryId: query.id,
                 queryText: query.text,
+                originalQuery,
+                updatedQuery,
                 pass1Results,
                 pass2Results,
-                pass1AP: relevantDocumentIds.length > 0
-                    ? this.computeAveragePrecision(pass1Results, relevantDocumentIds)
+                pass1AP: qrelsRelevantDocumentIds.length > 0
+                    ? this.computeAveragePrecision(pass1Results, qrelsRelevantDocumentIds)
                     : null,
-                pass2AP: relevantDocumentIds.length > 0
-                    ? this.computeAveragePrecision(pass2Results, relevantDocumentIds)
+                pass2AP: qrelsRelevantDocumentIds.length > 0
+                    ? this.computeAveragePrecision(pass2Results, qrelsRelevantDocumentIds)
                     : null,
-                relevantDocumentCount: relevantDocumentIds.length,
+                relevantDocumentCount: qrelsRelevantDocumentIds.length,
+                feedbackRelevantDocumentIds,
+                feedbackNonRelevantDocumentIds,
             };
         });
 
@@ -175,42 +245,69 @@ export class IREngine {
         return {
             queryResults,
             pass1MAP,
-            pass2MAP, 
+            pass2MAP,
         };
     }
 
-    applyFeedback(queryVector: SparseVectorType, initialResults: SearchResultType[]): SparseVectorType {
-        const prfDocs = initialResults.slice(0, 5).map(r => this.documentVectors![r.documentId]);
-        const nonRelevantDocs: SparseVectorType[] = []; 
-        
-        let feedbackVector: Record<string, number> = {};
-        const method = this.systemSettings!.relevanceFeedbackMethod;
-
-        if (method === "rocchio") {
-            feedbackVector = applyRocchio(queryVector, prfDocs, nonRelevantDocs, this.systemSettings!);
-        } else if (method === "ide") {
-            feedbackVector = applyIdeRegular(queryVector, prfDocs, nonRelevantDocs, this.systemSettings!);
-        } else if (method === "ide-dec-hi") {
-            feedbackVector = applyIdeDecHi(queryVector, prfDocs, nonRelevantDocs, this.systemSettings!);
-        }
-
-        const expanded = { ...queryVector };
-        const newTerms = Object.entries(feedbackVector)
-            .filter(([term, weight]) => !(term in queryVector) && weight > 0)
-            .sort((a, b) => b[1] - a[1]);
-
-        // @ts-ignore : Pastikan expandAllTerms dan expansionTermsCount terdefinisi di type systemSettings sebelumnya
-        const termsToAdd = this.systemSettings!.expandAllTerms 
-            ? newTerms 
-            : newTerms.slice(0, (this.systemSettings! as any).expansionTermsCount ?? 5);
-
-        for (const [term, weight] of termsToAdd) expanded[term] = weight;
-
-        return this.systemSettings!.queryNormalization ? normalizeVector(expanded) : expanded;
+    getDocumentVector(documentId: string): SparseVectorType {
+        return this.documentVectors?.[documentId] ?? {};
     }
 
+    private applyFeedback(
+        queryVector: SparseVectorType,
+        relevantDocumentIds: string[],
+        nonRelevantDocumentIds: string[],
+    ): SparseVectorType {
+        const relevantVectors = this.getVectorsByDocumentIds(relevantDocumentIds);
+        const nonRelevantVectors = this.getVectorsByDocumentIds(nonRelevantDocumentIds);
+        const method = this.systemSettings!.relevanceFeedbackMethod;
+        let feedbackVector: SparseVectorType = {};
 
-    // HELPER METHODS
+        if (method === "rocchio") {
+            feedbackVector = applyRocchio(queryVector, relevantVectors, nonRelevantVectors, this.systemSettings!);
+        } else if (method === "ide") {
+            feedbackVector = applyIdeRegular(queryVector, relevantVectors, nonRelevantVectors);
+        } else if (method === "ide-dec-hi") {
+            feedbackVector = applyIdeDecHi(queryVector, relevantVectors, nonRelevantVectors);
+        }
+
+        const originalTerms = new Set(Object.keys(queryVector));
+        const expandedQuery: SparseVectorType = {};
+
+        for (const term of originalTerms) {
+            const feedbackWeight = feedbackVector[term];
+
+            if (feedbackWeight === undefined) {
+                expandedQuery[term] = queryVector[term];
+            } else if (feedbackWeight > 0) {
+                expandedQuery[term] = feedbackWeight;
+            }
+        }
+
+        const expansionTerms = Object.entries(feedbackVector)
+            .filter(([term, weight]) => !originalTerms.has(term) && weight > 0)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, DEFAULT_EXPANSION_TERMS_COUNT);
+
+        for (const [term, weight] of expansionTerms) {
+            expandedQuery[term] = weight;
+        }
+
+        return this.systemSettings!.queryNormalization ? normalizeVector(expandedQuery) : expandedQuery;
+    }
+
+    private getVectorsByDocumentIds(documentIds: string[]): SparseVectorType[] {
+        return documentIds
+            .map((documentId) => this.documentVectors?.[documentId])
+            .filter((vector): vector is SparseVectorType => Boolean(vector));
+    }
+
+    private assertReady() {
+        if (!this.systemSettings || !this.documentsCollection || !this.idf || !this.documentVectors) {
+            throw new Error("Mesin IR belum siap. Unggah dan proses koleksi dokumen terlebih dahulu.");
+        }
+    }
+
     private buildQueryVector(query: string): SparseVectorType {
         const queryTokens = preprocessText(query, this.systemSettings!);
         const queryTf = computeTermFrequency(
