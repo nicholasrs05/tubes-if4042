@@ -10,16 +10,16 @@ function App() {
   const [systemSettings, setSystemSettings] = useState<SystemSettingsType>({
     stemWords: true,
     eliminateStopWords: true,
-    queryTermFrequency: "raw",
-    queryInverseDocumentFrequency: true,
+    queryTermFrequency: "logarithmic",
+    queryInverseDocumentFrequency: false,
     queryNormalization: true,
-    documentTermFrequency: "raw",
+    documentTermFrequency: "logarithmic",
     documentInverseDocumentFrequency: true,
     documentNormalization: true,
     relevanceFeedbackMethod: "rocchio",
     rocchioBetaConstant: 1,
     rocchioGammaConstant: 1,
-    topKRetrievedDocuments: 5,
+    topKRetrievedDocuments: 10,
   })
   const [searchQuery, setSearchQuery] = useState<string>("")
 
