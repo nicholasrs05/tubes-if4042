@@ -1,6 +1,6 @@
 import z from "zod"
 
-const SparseVectorSchema = z.record(
+export const SparseVectorSchema = z.record(
     z.string(), 
     z.number()
 )

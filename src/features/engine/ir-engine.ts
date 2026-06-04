@@ -16,49 +16,17 @@ import type { QrelsCollectionType } from "@/types/qrels";
 import type { InvertedIndexType } from "@/types/inverted-index";
 import type { IDFType } from "@/types/idf";
 import type { DocumentVectorsType, SparseVectorType } from "@/types/document-vectors";
+import type {
+    BatchQueryResultType,
+    BatchSearchResultType,
+    InitialSearchResponse,
+    SearchResultResponse,
+    SearchResultType,
+} from "@/types/ir-engine";
 import { applyIdeDecHi, applyIdeRegular, applyRocchio } from "./relevance-feedback";
 
 export const DEFAULT_EXPANSION_TERMS_COUNT = 5;
 const DEFAULT_PSEUDO_RELEVANT_DOCUMENTS_COUNT = 5;
-
-export type SearchResultType = {
-    documentId: string;
-    score: number;
-};
-
-export type InitialSearchResponse = {
-    originalQuery: SparseVectorType;
-    pass1Results: SearchResultType[];
-};
-
-export type SearchResultResponse = {
-    originalQuery: SparseVectorType;
-    updatedQuery: SparseVectorType;
-    pass1Results: SearchResultType[];
-    pass2Results: SearchResultType[];
-    relevantDocumentIds: string[];
-    nonRelevantDocumentIds: string[];
-};
-
-export type BatchQueryResultType = {
-    queryId: string;
-    queryText: string;
-    originalQuery: SparseVectorType;
-    updatedQuery: SparseVectorType;
-    pass1Results: SearchResultType[];
-    pass2Results: SearchResultType[];
-    pass1AP: number | null;
-    pass2AP: number | null;
-    relevantDocumentCount: number;
-    feedbackRelevantDocumentIds: string[];
-    feedbackNonRelevantDocumentIds: string[];
-};
-
-export type BatchSearchResultType = {
-    queryResults: BatchQueryResultType[];
-    pass1MAP: number | null;
-    pass2MAP: number | null;
-};
 
 export class IREngine {
     systemSettings: SystemSettingsType | null = null;

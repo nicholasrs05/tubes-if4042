@@ -1,7 +1,6 @@
 import type { SystemSettingsType } from "@/types/system-settings";
 import type { SparseVectorType } from "@/types/document-vectors";
-
-export type TermFrequencyVariant = "raw" | "binary" | "logarithmic" | "augmented";
+import type { TermFrequencyVariant } from "@/types/weighting";
 
 export function computeRawTermFrequency(tokens: string[]): Record<string, number> {
     const termFrequency: Record<string, number> = {};
