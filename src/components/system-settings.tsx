@@ -14,9 +14,11 @@ type SystemSettingsProps = {
 
 export function SystemSettings({ systemSettings, onSettingsChange }: SystemSettingsProps) {
     return (
-        <div className="rounded-xl border-2 border-gray-300 p-6 md:p-8">
+        <div className="settings-panel rounded-[1.75rem] p-6 md:p-8">
             <div className="space-y-8">
-                <h2 className="text-2xl font-semibold tracking-tight">Konfigurasi Sistem</h2>
+                <div>
+                    <h2 className="text-3xl font-black tracking-[-0.04em]">Konfigurasi Sistem</h2>
+                </div>
 
                 <div className="flex flex-col gap-4 lg:flex-row lg:gap-10">
                     <div className="flex items-center gap-3">

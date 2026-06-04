@@ -188,7 +188,7 @@ function WeightTable({
                         <tbody>
                             {entries.map(([term, weight]) => (
                                 <tr key={term} className="border-b border-gray-100 last:border-b-0">
-                                    <td className="max-w-0 px-3 py-2 font-mono text-xs text-gray-700">
+                                    <td className="max-w-0 px-3 py-2 text-xs text-gray-700">
                                         <span className="block truncate">{term}</span>
                                     </td>
                                     <td className="px-3 py-2 text-right font-semibold text-gray-900">
@@ -288,7 +288,7 @@ function ExpansionTermSelector({
                                             <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-900">
                                                 #{index + 1}
                                             </span>
-                                            <span className="truncate font-mono text-xs text-gray-800">{term}</span>
+                                            <span className="truncate text-xs text-gray-800">{term}</span>
                                         </div>
                                     </td>
                                     <td className="px-3 py-2 text-right font-semibold text-gray-950">
@@ -324,7 +324,7 @@ function VectorChips({ vector, limit = 4 }: { vector: SparseVectorType; limit?: 
             {entries.map(([term, weight]) => (
                 <span
                     key={term}
-                    className="rounded-full bg-gray-100 px-2.5 py-1 font-mono text-xs text-gray-700"
+                    className="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-700"
                 >
                     {term} {formatWeight(weight)}
                 </span>
@@ -441,7 +441,7 @@ function ResultsColumn({
         <section className="space-y-3">
             <div>
                 <h4 className="text-base font-semibold tracking-tight">{title}</h4>
-                <p className="text-sm text-gray-600">{description}</p>
+                <p className="text-lg font-bold text-gray-600">{description}</p>
             </div>
 
             <div className="max-h-[38rem] space-y-3 overflow-y-auto pr-1">
@@ -1013,8 +1013,10 @@ export function SearchEngine({ irEngineRef, systemSettings, searchQuery, setSear
     const selectedBatchRank = selectedBatchResultIndex !== null ? selectedBatchResultIndex + 1 : null;
 
     return (
-        <div className="rounded-xl border-2 border-gray-300 p-6 md:p-8 space-y-8">
-            <h2 className="text-2xl font-semibold tracking-tight">Search Engine</h2>
+        <div className="search-workbench rounded-[1.75rem] p-6 md:p-8 space-y-8">
+            <div>
+                <h2 className="text-3xl font-black tracking-[-0.04em]">Search Engine</h2>
+            </div>
 
             <div className="flex flex-col space-y-2">
                 <h3 className="text-lg font-semibold tracking-tight">Unggah Koleksi Dokumen</h3>
@@ -1086,7 +1088,7 @@ export function SearchEngine({ irEngineRef, systemSettings, searchQuery, setSear
                         className="block w-full max-w-4xl text-sm"
                     />
                     <p className="text-sm text-gray-600">
-                        Jalankan pencarian awal, centang dokumen relevan, hitung bobot kandidat term, pilih term ekspansi, lalu tampilkan hasil setelah ekspansi.
+                        Alur Penggunaan: jalankan pencarian awal, pilih dokumen relevan, pilih term ekspansi, lalu tampilkan hasil setelah ekspansi.
                     </p>
                 </div>
             )}
@@ -1196,19 +1198,19 @@ export function SearchEngine({ irEngineRef, systemSettings, searchQuery, setSear
 
                     {singleSearch.updatedQuery && (
                         <div className="grid gap-4 md:grid-cols-2">
-                            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                                <p className="text-sm font-semibold text-emerald-800">
+                            <div className="rounded-xl border border-stone-300 bg-stone-50 p-4">
+                                <p className="text-sm font-semibold text-stone-800">
                                     Dokumen feedback relevan
                                 </p>
-                                <p className="mt-1 text-sm text-emerald-900">
+                                <p className="mt-1 text-sm text-stone-700">
                                     {formatDocumentIds(singleSearch.feedbackRelevantDocumentIds)}
                                 </p>
                             </div>
-                            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-                                <p className="text-sm font-semibold text-amber-800">
+                            <div className="rounded-xl border border-stone-300 bg-stone-50 p-4">
+                                <p className="text-sm font-semibold text-stone-800">
                                     Dokumen feedback nonrelevan
                                 </p>
-                                <p className="mt-1 text-sm text-amber-900">
+                                <p className="mt-1 text-sm text-stone-700">
                                     {formatDocumentIds(singleSearch.feedbackNonRelevantDocumentIds)}
                                 </p>
                             </div>
@@ -1270,7 +1272,7 @@ export function SearchEngine({ irEngineRef, systemSettings, searchQuery, setSear
                         </div>
 
                         <Button type="button" className="px-6" onClick={handleBatchDownload}>
-                            Unduh Hasil Before/After
+                            Unduh Hasil
                         </Button>
                     </div>
 
@@ -1337,19 +1339,19 @@ export function SearchEngine({ irEngineRef, systemSettings, searchQuery, setSear
                             </div>
 
                             <div className="grid gap-4 md:grid-cols-2">
-                                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                                    <p className="text-sm font-semibold text-emerald-800">
+                                <div className="rounded-xl border border-stone-300 bg-stone-50 p-4">
+                                    <p className="text-sm font-semibold text-stone-800">
                                         Dokumen feedback relevan
                                     </p>
-                                    <p className="mt-1 text-sm text-emerald-900">
+                                    <p className="mt-1 text-sm text-stone-700">
                                         {formatDocumentIds(selectedBatchQuery.feedbackRelevantDocumentIds)}
                                     </p>
                                 </div>
-                                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-                                    <p className="text-sm font-semibold text-amber-800">
+                                <div className="rounded-xl border border-stone-300 bg-stone-50 p-4">
+                                    <p className="text-sm font-semibold text-stone-800">
                                         Dokumen feedback nonrelevan
                                     </p>
-                                    <p className="mt-1 text-sm text-amber-900">
+                                    <p className="mt-1 text-sm text-stone-700">
                                         {formatDocumentIds(selectedBatchQuery.feedbackNonRelevantDocumentIds)}
                                     </p>
                                 </div>

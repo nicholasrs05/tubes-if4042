@@ -34,11 +34,18 @@ function App() {
   }
 
   return (
-    <>
-      <div className="p-3">
-        <div className="text-center my-10">
-          <h1 className="text-3xl font-bold mb-2">Tugas Besar IF4042 - Sistem Temu Balik Informasi</h1>
-          <h2 className="text-2xl font-semibold">Query Expansion dengan Relevance Feedback</h2>
+    <div className="app-shell min-h-screen px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-[100rem]">
+        <div className="hero-panel mb-10 overflow-hidden rounded-[2rem] px-6 py-8 text-left shadow-2xl sm:px-10 lg:px-12">
+          <div className="relative z-10">
+            <p className="eyebrow mb-4">Tugas Besar IF4042 - Sistem Temu Balik Informasi 2026</p>
+            <h1 className="hero-title mb-4 text-4xl font-black leading-none tracking-[-0.06em] sm:text-6xl lg:text-6xl">
+              Query Expansion dengan Relevance Feedback
+            </h1>
+            <p className="max-w-2xl text-base leading-7 text-stone-700 sm:text-lg">
+              Dibuat oleh Kelompok 5
+            </p>
+          </div>
         </div>
 
         <main className="space-y-8">
@@ -46,7 +53,7 @@ function App() {
           <SearchEngine irEngineRef={irEngineRef} systemSettings={systemSettings} searchQuery={searchQuery} setSearchQuery={setSearchQuery} />
         </main>
       </div>
-    </>
+    </div>
   )
 }
 
