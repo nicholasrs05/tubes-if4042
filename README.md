@@ -1,44 +1,51 @@
-# Great Task - Query Expansion with Relevance Feedback
+# Final Project - Query Expansion with Relevance Feedback
+
 ## IF4042 - Information Retrieval Systems
 
 ### Group 5
-| NIM | Nama |
-| -- | ------ |
-| 13522016 | Zachary Samuel Tobing |
-| 13522051 | Kharris Khisunica |
-| 13522138 | Andi Marihot Sitorus |
+
+| NIM      | Name                    |
+| -------- | ----------------------- |
+| 13522016 | Zachary Samuel Tobing   |
+| 13522051 | Kharris Khisunica       |
+| 13522138 | Andi Marihot Sitorus    |
 | 13522144 | Nicholas Reymond Sihite |
-| 13523108 | Henry Filberto Shenelo |
+| 13523108 | Henry Filberto Shenelo  |
 
 ## Description
-This is a repository for great task of IF4042 - Information Retrieval Systems, Query Expansion with Relevance Feedback.
+
+This repository contains the final project for IF4042 - Information Retrieval Systems. The project focuses on implementing Query Expansion using Relevance Feedback techniques to improve information retrieval performance.
 
 ## How to Use
 
-### Use The Deployed Website
+### Access the Deployed Application
 
 https://tubes-if4042-05.vercel.app/
 
-### Run Manually
+### Run Locally
 
 1. Clone the repository
+
 ```bash
 git clone https://github.com/nicholasrs05/tubes-if4042.git
 ```
 
-2. Make sure you have Node.js an at least a package manager (e.g. NPM, Bun, Yarn, etc.) installed
+2. Make sure you have Node.js and a package manager (e.g., npm, Bun, or Yarn) installed.
 
-3. Install requirements
+3. Install the dependencies
+
 ```bash
 npm install
 ```
 
-4. Run the application
+4. Start the development server
+
 ```bash
 npm run dev
 ```
 
-5. Open browser and type address
-```
+5. Open your browser and navigate to
+
+```text
 http://localhost:5173
 ```
