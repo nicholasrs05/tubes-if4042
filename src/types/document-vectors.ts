@@ -1,13 +1,13 @@
 import z from "zod"
 
-const SparseVectorSchema = z.record(
+export const SparseVectorSchema = z.record(
     z.string(), 
     z.number()
 )
 
 export type SparseVectorType = z.infer<typeof SparseVectorSchema>
 
-const DocumentVectorsSchema = z.record(
+export const DocumentVectorsSchema = z.record(
     z.string(), 
     SparseVectorSchema
 )

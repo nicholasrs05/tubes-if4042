@@ -1,6 +1,6 @@
 import z from "zod"
 
-const IDFSchema = z.record(
+export const IDFSchema = z.record(
     z.string(), 
     z.number()
 )

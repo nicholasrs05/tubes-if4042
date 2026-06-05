@@ -1,6 +1,6 @@
 import z from "zod"
 
-const SystemSettingsSchema = z.object({
+export const SystemSettingsSchema = z.object({
     stemWords: z.boolean(),
     eliminateStopWords: z.boolean(),
     queryTermFrequency: z.string(),

@@ -2,42 +2,37 @@ import { parseCisiDocument } from "@/features/parser/cisi-parser";
 import { parseQrelsDocument } from "@/features/parser/qrels-parser";
 import { parseQueryDocuments } from "@/features/parser/query-parser";
 import { preprocessText } from "../preprocessor/preprocess";
-import { 
-    computeRawTermFrequency, 
-    computeTermFrequency, 
+import {
+    computeRawTermFrequency,
+    computeTermFrequency,
+    computeIDF,
     normalizeVector,
     cosineSimilarity,
 } from "./weighting";
 
 import type { SystemSettingsType } from "@/types/system-settings";
-import type { DocumentType, DocumentsCollectionType }from "@/types/document-collections";
+import type { DocumentType, DocumentsCollectionType } from "@/types/document-collections";
 import type { QueriesCollectionType, QueryType } from "@/types/queries";
 import type { QrelsCollectionType } from "@/types/qrels";
 import type { InvertedIndexType } from "@/types/inverted-index";
 import type { IDFType } from "@/types/idf";
 import type { DocumentVectorsType, SparseVectorType } from "@/types/document-vectors";
+import type {
+    BatchQueryResultType,
+    BatchSearchResultType,
+    InitialSearchResponse,
+    SearchResultResponse,
+    SearchResultType,
+} from "@/types/ir-engine";
+import { applyIdeDecHi, applyIdeRegular, applyRocchio } from "./relevance-feedback";
 
-export type SearchResultType = {
-    documentId: string;
-    score: number;
-};
-
-export type BatchQueryResultType = {
-    queryId: string;
-    queryText: string;
-    results: SearchResultType[];
-    averagePrecision: number | null;
-    relevantDocumentCount: number;
-};
-
-export type BatchSearchResultType = {
-    queryResults: BatchQueryResultType[];
-    meanAveragePrecision: number | null;
-};
+export const DEFAULT_EXPANSION_TERMS_COUNT = 5;
+const DEFAULT_PSEUDO_RELEVANT_DOCUMENTS_COUNT = 5;
 
 export class IREngine {
     systemSettings: SystemSettingsType | null = null;
     documentsCollection: DocumentsCollectionType | null = null;
+    documentsById: Map<string, DocumentType> = new Map();
     queries: QueriesCollectionType | null = null;
     qrels: QrelsCollectionType | null = null;
     invertedIndex: InvertedIndexType | null = null;
@@ -77,13 +72,18 @@ export class IREngine {
 
         this.documentsCollection = await parseCisiDocument(documentCollection);
 
+        this.documentsById.clear();
+        for (const doc of this.documentsCollection.documents) {
+            this.documentsById.set(doc.id, doc);
+        }
+
         const preprocessedDocuments = this.documentsCollection.documents.map((doc: DocumentType) => ({
             docId: doc.id,
             tokens: preprocessText(doc.concatenatedContent, settings),
         }));
         this.invertedIndex = this.buildInvertedIndex(preprocessedDocuments);
 
-        this.idf = this.computeIDF(this.invertedIndex, this.documentsCollection.documents.length);
+        this.idf = computeIDF(this.invertedIndex, this.documentsCollection.documents.length);
 
         this.documentVectors = this.computeDocumentVectors(preprocessedDocuments, this.idf, settings);
     }
@@ -96,10 +96,64 @@ export class IREngine {
         this.qrels = await parseQrelsDocument(qrelsDocument);
     }
 
-    search(query: string, topK: number = 10): SearchResultType[] {
-        const queryVector = this.buildQueryVector(query);
+    searchInitial(query: string, topK: number = 10): InitialSearchResponse {
+        this.assertReady();
 
-        return this.rankDocuments(queryVector, topK);
+        const originalQuery = this.buildQueryVector(query);
+        const pass1Results = this.rankDocuments(originalQuery, topK);
+
+        return {
+            originalQuery,
+            pass1Results,
+        };
+    }
+
+    search(query: string, topK: number = 10): SearchResultResponse {
+        const initialSearch = this.searchInitial(query, topK);
+        const pseudoRelevantDocumentIds = initialSearch.pass1Results
+            .slice(0, Math.min(DEFAULT_PSEUDO_RELEVANT_DOCUMENTS_COUNT, initialSearch.pass1Results.length))
+            .map((result) => result.documentId);
+
+        return this.expandSearchWithFeedback(
+            initialSearch.originalQuery,
+            initialSearch.pass1Results,
+            topK,
+            pseudoRelevantDocumentIds,
+            []
+        );
+    }
+
+    expandSearchWithFeedback(
+        originalQuery: SparseVectorType,
+        pass1Results: SearchResultType[],
+        topK: number,
+        relevantDocumentIds: string[],
+        nonRelevantDocumentIds?: string[],
+        selectedExpansionTerms?: string[]
+    ): SearchResultResponse {
+        this.assertReady();
+
+        const relevantSet = new Set(relevantDocumentIds);
+        const resolvedNonRelevantDocumentIds = nonRelevantDocumentIds
+            ?? pass1Results
+                .map((result) => result.documentId)
+                .filter((documentId) => !relevantSet.has(documentId));
+        const updatedQuery = this.applyFeedback(
+            originalQuery,
+            relevantDocumentIds,
+            resolvedNonRelevantDocumentIds,
+            selectedExpansionTerms
+        );
+        const pass2Results = this.rankDocuments(updatedQuery, topK);
+
+        return {
+            originalQuery,
+            updatedQuery,
+            pass1Results,
+            pass2Results,
+            relevantDocumentIds,
+            nonRelevantDocumentIds: resolvedNonRelevantDocumentIds,
+        };
     }
 
     async searchBatch(
@@ -107,6 +161,7 @@ export class IREngine {
         topK: number = 10,
         qrelsDocument?: File
     ): Promise<BatchSearchResultType> {
+        this.assertReady();
         await this.processQueries(queryDocument);
 
         if (qrelsDocument) {
@@ -116,35 +171,159 @@ export class IREngine {
         }
 
         const queryResults = this.queries!.queries.map((query: QueryType): BatchQueryResultType => {
-            const results = this.search(query.text, topK);
-            const relevantDocumentIds = this.qrels?.[query.id] ?? [];
+            const { originalQuery, pass1Results } = this.searchInitial(query.text, topK);
+            const qrelsRelevantDocumentIds = this.qrels?.[query.id] ?? [];
+            const qrelsRelevantDocumentSet = new Set(qrelsRelevantDocumentIds);
+            const feedbackRelevantDocumentIds = qrelsRelevantDocumentIds.length > 0
+                ? qrelsRelevantDocumentIds.filter((documentId) => Boolean(this.documentVectors?.[documentId]))
+                : pass1Results
+                    .slice(0, Math.min(DEFAULT_PSEUDO_RELEVANT_DOCUMENTS_COUNT, pass1Results.length))
+                    .map((result) => result.documentId);
+            const feedbackNonRelevantDocumentIds = qrelsRelevantDocumentIds.length > 0
+                ? pass1Results
+                    .map((result) => result.documentId)
+                    .filter((documentId) => !qrelsRelevantDocumentSet.has(documentId))
+                : [];
+            const { updatedQuery, pass2Results } = this.expandSearchWithFeedback(
+                originalQuery,
+                pass1Results,
+                topK,
+                feedbackRelevantDocumentIds,
+                feedbackNonRelevantDocumentIds
+            );
 
             return {
                 queryId: query.id,
                 queryText: query.text,
-                results,
-                averagePrecision: relevantDocumentIds.length > 0
-                    ? this.computeAveragePrecision(results, relevantDocumentIds)
+                originalQuery,
+                updatedQuery,
+                pass1Results,
+                pass2Results,
+                pass1AP: qrelsRelevantDocumentIds.length > 0
+                    ? this.computeAveragePrecision(pass1Results, qrelsRelevantDocumentIds)
                     : null,
-                relevantDocumentCount: relevantDocumentIds.length,
+                pass2AP: qrelsRelevantDocumentIds.length > 0
+                    ? this.computeAveragePrecision(pass2Results, qrelsRelevantDocumentIds)
+                    : null,
+                relevantDocumentCount: qrelsRelevantDocumentIds.length,
+                feedbackRelevantDocumentIds,
+                feedbackNonRelevantDocumentIds,
             };
         });
 
-        const scoredQueries = queryResults.filter((result: BatchQueryResultType) => result.averagePrecision !== null);
-        const meanAveragePrecision = scoredQueries.length > 0
-            ? scoredQueries.reduce((sum: number, result: BatchQueryResultType) => sum + (result.averagePrecision ?? 0), 0) / scoredQueries.length
+        const scoredQueries = queryResults.filter((result: BatchQueryResultType) => result.pass1AP !== null);
+        const pass1MAP = scoredQueries.length > 0
+            ? scoredQueries.reduce((sum: number, result: BatchQueryResultType) => sum + (result.pass1AP ?? 0), 0) / scoredQueries.length
+            : null;
+        const pass2MAP = scoredQueries.length > 0
+            ? scoredQueries.reduce((sum: number, result: BatchQueryResultType) => sum + (result.pass2AP ?? 0), 0) / scoredQueries.length
             : null;
 
         return {
             queryResults,
-            meanAveragePrecision,
+            pass1MAP,
+            pass2MAP,
         };
     }
 
-    applyFeedback(query: string, relevantDocs: DocumentVectorsType, nonRelevantDocs: DocumentVectorsType) {}
+    getDocumentVector(documentId: string): SparseVectorType {
+        return this.documentVectors?.[documentId] ?? {};
+    }
 
+    computeExpansionTermWeights(
+        queryVector: SparseVectorType,
+        relevantDocumentIds: string[],
+        nonRelevantDocumentIds: string[],
+    ): SparseVectorType {
+        this.assertReady();
 
-    // HELPER METHODS
+        const feedbackVector = this.computeFeedbackVector(
+            queryVector,
+            relevantDocumentIds,
+            nonRelevantDocumentIds
+        );
+        const originalTerms = new Set(Object.keys(queryVector));
+
+        return Object.fromEntries(
+            Object.entries(feedbackVector)
+                .filter(([term, weight]) => !originalTerms.has(term) && weight > 0)
+                .sort((a, b) => b[1] - a[1])
+        );
+    }
+
+    private computeFeedbackVector(
+        queryVector: SparseVectorType,
+        relevantDocumentIds: string[],
+        nonRelevantDocumentIds: string[],
+    ): SparseVectorType {
+        const relevantVectors = this.getVectorsByDocumentIds(relevantDocumentIds);
+        const nonRelevantVectors = this.getVectorsByDocumentIds(nonRelevantDocumentIds);
+        const method = this.systemSettings!.relevanceFeedbackMethod;
+        let feedbackVector: SparseVectorType = {};
+
+        if (method === "rocchio") {
+            feedbackVector = applyRocchio(queryVector, relevantVectors, nonRelevantVectors, this.systemSettings!);
+        } else if (method === "ide") {
+            feedbackVector = applyIdeRegular(queryVector, relevantVectors, nonRelevantVectors);
+        } else if (method === "ide-dec-hi") {
+            feedbackVector = applyIdeDecHi(queryVector, relevantVectors, nonRelevantVectors);
+        }
+
+        return feedbackVector;
+    }
+
+    private applyFeedback(
+        queryVector: SparseVectorType,
+        relevantDocumentIds: string[],
+        nonRelevantDocumentIds: string[],
+        selectedExpansionTerms?: string[],
+    ): SparseVectorType {
+        const feedbackVector = this.computeFeedbackVector(
+            queryVector,
+            relevantDocumentIds,
+            nonRelevantDocumentIds
+        );
+        const originalTerms = new Set(Object.keys(queryVector));
+        const selectedExpansionTermsSet = selectedExpansionTerms
+            ? new Set(selectedExpansionTerms)
+            : null;
+        const expandedQuery: SparseVectorType = {};
+
+        for (const term of originalTerms) {
+            const feedbackWeight = feedbackVector[term];
+
+            if (feedbackWeight === undefined) {
+                expandedQuery[term] = queryVector[term];
+            } else if (feedbackWeight > 0) {
+                expandedQuery[term] = feedbackWeight;
+            }
+        }
+
+        const expansionTerms = Object.entries(feedbackVector)
+            .filter(([term, weight]) => !originalTerms.has(term) && weight > 0)
+            .sort((a, b) => b[1] - a[1])
+            .filter(([term]) => selectedExpansionTermsSet === null || selectedExpansionTermsSet.has(term))
+            .slice(0, selectedExpansionTermsSet === null ? DEFAULT_EXPANSION_TERMS_COUNT : undefined);
+
+        for (const [term, weight] of expansionTerms) {
+            expandedQuery[term] = weight;
+        }
+
+        return this.systemSettings!.queryNormalization ? normalizeVector(expandedQuery) : expandedQuery;
+    }
+
+    private getVectorsByDocumentIds(documentIds: string[]): SparseVectorType[] {
+        return documentIds
+            .map((documentId) => this.documentVectors?.[documentId])
+            .filter((vector): vector is SparseVectorType => Boolean(vector));
+    }
+
+    private assertReady() {
+        if (!this.systemSettings || !this.documentsCollection || !this.idf || !this.documentVectors) {
+            throw new Error("Mesin IR belum siap. Unggah dan proses koleksi dokumen terlebih dahulu.");
+        }
+    }
+
     private buildQueryVector(query: string): SparseVectorType {
         const queryTokens = preprocessText(query, this.systemSettings!);
         const queryTf = computeTermFrequency(
@@ -171,12 +350,27 @@ export class IREngine {
     }
 
     private rankDocuments(queryVector: SparseVectorType, topK: number): SearchResultType[] {
-        const results = Object.entries(this.documentVectors!).map(
-            ([documentId, documentVector]) => ({
-                documentId,
-                score: cosineSimilarity(queryVector, documentVector),
-            })
-        );
+        const isQueryNorm = Boolean(this.systemSettings!.queryNormalization);
+        const isDocumentNorm = Boolean(this.systemSettings!.documentNormalization);
+
+        const candidateDocumentIds = new Set<string>();
+
+        for (const term in queryVector) {
+            if (queryVector[term] > 0 && this.invertedIndex![term]) {
+                for (const posting of this.invertedIndex![term]) {
+                    candidateDocumentIds.add(posting.documentId);
+                }
+            }
+        }
+
+        const results: SearchResultType[] = [];
+
+        for (const documentId of candidateDocumentIds) {
+            const documentVector = this.documentVectors![documentId];
+            if (documentVector) {
+                results.push({ documentId, score: cosineSimilarity(queryVector, documentVector, isQueryNorm, isDocumentNorm) });
+            }
+        }
 
         return results
             .sort((a, b) => b.score - a.score)
@@ -221,21 +415,6 @@ export class IREngine {
         }
 
         return invertedIndex;
-    }
-
-    private computeIDF(
-        invertedIndex: InvertedIndexType,
-        totalDocuments: number
-    ): IDFType {
-        const idf: IDFType = {};
-
-        for (const [term, postingList] of Object.entries(invertedIndex) as [string, InvertedIndexType[string]][]) {
-            const documentFrequency = postingList.length;
-
-            idf[term] = Math.log10(totalDocuments / documentFrequency);
-        }
-
-        return idf;
     }
 
     private computeDocumentVectors(

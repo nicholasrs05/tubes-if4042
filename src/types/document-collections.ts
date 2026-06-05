@@ -1,6 +1,6 @@
 import z from "zod"
 
-const DocumentSchema = z.object({
+export const DocumentSchema = z.object({
     id: z.string(),
     title: z.string(),
     author: z.string(),

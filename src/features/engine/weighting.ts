@@ -1,7 +1,8 @@
 import type { SystemSettingsType } from "@/types/system-settings";
 import type { SparseVectorType } from "@/types/document-vectors";
-
-export type TermFrequencyVariant = "raw" | "binary" | "logarithmic" | "augmented";
+import type { TermFrequencyVariant } from "@/types/weighting";
+import type { InvertedIndexType } from "@/types/inverted-index";
+import type { IDFType } from "@/types/idf";
 
 export function computeRawTermFrequency(tokens: string[]): Record<string, number> {
     const termFrequency: Record<string, number> = {};
@@ -28,37 +29,60 @@ export function computeTermFrequency(
     }
 
     if (termFrequencyVariant === "binary") {
-        return Object.fromEntries(
-            Object.keys(rawTf).map((term) => [term, 1])
-        );
+        const binaryTf: Record<string, number> = {};
+        for (const term in rawTf) {
+            binaryTf[term] = 1;
+        }
+        return binaryTf;
     }
 
     if (termFrequencyVariant === "logarithmic") {
-        return Object.fromEntries(
-            Object.entries(rawTf).map(([term, tf]) => [
-            term,
-            1 + Math.log10(tf),
-            ])
-        );
+        const logTf: Record<string, number> = {};
+        for (const term in rawTf) {
+            logTf[term] = 1 + Math.log10(rawTf[term]);
+        }
+        return logTf;
     }
 
     if (termFrequencyVariant === "augmented") {
-        const maxTf = Math.max(...Object.values(rawTf));
+        let maxTf = 0;
+        for (const term in rawTf) {
+            if (rawTf[term] > maxTf) {
+                maxTf = rawTf[term];
+            }
+        }
 
-        return Object.fromEntries(
-            Object.entries(rawTf).map(([term, tf]) => [
-                term,
-                0.5 + 0.5 * (tf / maxTf),
-            ])
-        );
+        const augmentedTf: Record<string, number> = {};
+        for (const term in rawTf) {
+            augmentedTf[term] = 0.5 + 0.5 * (rawTf[term] / maxTf);
+        }
+
+        return augmentedTf;
     }
 
     return rawTf;
 }
 
+export function computeIDF(
+        invertedIndex: InvertedIndexType,
+        totalDocuments: number
+    ): IDFType {
+        const idf: IDFType = {};
+
+        for (const [term, postingList] of Object.entries(invertedIndex) as [string, InvertedIndexType[string]][]) {
+            const documentFrequency = postingList.length;
+
+            idf[term] = Math.log10(totalDocuments / documentFrequency);
+        }
+
+        return idf;
+    }
+
 export function cosineSimilarity(
     vectorA: SparseVectorType,
-    vectorB: SparseVectorType
+    vectorB: SparseVectorType,
+    isANormalized: boolean = false,
+    isBNormalized: boolean = false
 ): number {
     let dotProduct = 0;
 
@@ -67,8 +91,12 @@ export function cosineSimilarity(
         dotProduct += weightA * weightB;
     }
 
-    const normA = vectorNorm(vectorA);
-    const normB = vectorNorm(vectorB);
+    if (isANormalized && isBNormalized) {
+        return dotProduct;
+    }
+
+    const normA = isANormalized ? 1 : vectorNorm(vectorA);
+    const normB = isBNormalized ? 1 : vectorNorm(vectorB);
 
     if (normA === 0 || normB === 0) {
         return 0;
@@ -78,26 +106,32 @@ export function cosineSimilarity(
 }
 
 export function vectorNorm(vector: SparseVectorType): number {
-    return Math.sqrt(
-        Object.values(vector).reduce((sum, weight) => sum + weight ** 2, 0)
-    );
+    let sumOfSquares = 0;
+
+    for (const term in vector) {
+        sumOfSquares += vector[term] ** 2;
+    }
+    return Math.sqrt(sumOfSquares);
 }
 
 export function normalizeVector(vector: SparseVectorType): SparseVectorType {
-    const norm = Math.sqrt(
-        Object.values(vector).reduce((sum, weight) => {
-            return sum + weight ** 2;
-        }, 0)
-    );
+    let sumOfSquares = 0;
+
+    for (const term in vector) {
+        sumOfSquares += vector[term] ** 2;
+    }
+
+    const norm = Math.sqrt(sumOfSquares);
 
     if (norm === 0) {
         return vector;
     }
 
-    return Object.fromEntries(
-        Object.entries(vector).map(([term, weight]) => [
-            term,
-            weight / norm,
-        ])
-    );
+    const normalizedVector: SparseVectorType = {};
+
+    for (const term in vector) {
+        normalizedVector[term] = vector[term] / norm;
+    }
+
+    return normalizedVector;
 }

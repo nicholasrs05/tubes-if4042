@@ -5,7 +5,7 @@ const QuerySchema = z.object({
     text: z.string(),
 })
 
-const QueriesCollectionSchema = z.object({
+export const QueriesCollectionSchema = z.object({
     queries: z.array(QuerySchema),
 })
 
