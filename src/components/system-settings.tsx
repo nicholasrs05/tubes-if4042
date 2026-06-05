@@ -18,6 +18,7 @@ export function SystemSettings({ systemSettings, onSettingsChange }: SystemSetti
             <div className="space-y-8">
                 <div>
                     <h2 className="text-3xl font-black tracking-[-0.04em]">Konfigurasi Sistem</h2>
+                    <p className="text-sm mt-1 text-gray-600">Jika Anda mengubah konfigurasi stemming, stop words elimination, dan metode term weighting, harap proses ulang koleksi dokumen dengan cara mengunggah ulang file-nya.</p>
                 </div>
 
                 <div className="flex flex-col gap-4 lg:flex-row lg:gap-10">
